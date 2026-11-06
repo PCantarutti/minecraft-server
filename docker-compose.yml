@@ -20,7 +20,13 @@ services:
     # trocar esta tag. Pinar MC_VERSION evita a surpresa.
     image: itzg/minecraft-server:${MC_JAVA:-java25}
     container_name: minecraft
-    restart: unless-stopped
+    # Vem do .env porque a aba Automação do painel grava aqui. Fixo no arquivo,
+    # um `compose up -d mc` (que a aba Configuração roda a cada salvamento)
+    # desfaria a escolha em silêncio.
+    #
+    # always        -> sobe no boot mesmo se você tinha desligado antes
+    # unless-stopped-> respeita a parada manual, NÃO sobe no boot depois dela
+    restart: ${MC_RESTART:-unless-stopped}
     environment:
       EULA: "TRUE"
       TYPE: PAPER              # 3-5x o tick do vanilla, mesmo gameplay

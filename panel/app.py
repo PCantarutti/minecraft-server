@@ -578,7 +578,10 @@ def autostart_estado(projeto):
         _, out, _ = docker("inspect", c["nome"], "--format",
                            "{{.HostConfig.RestartPolicy.Name}}", timeout=20)
         politicas.append(out.strip() or "no")
-    ligados = sum(1 for p in politicas if p in ("unless-stopped", "always"))
+    # Só `always`. `unless-stopped` NÃO sobe no boot se o container foi parado
+    # na mão antes de desligar a máquina — e era exatamente esse o estado em
+    # que o painel dizia "sobe sozinho no boot" e o Minecraft não subia.
+    ligados = sum(1 for p in politicas if p == "always")
     return {"ligado": ligados == len(politicas), "misto": 0 < ligados < len(politicas),
             "total": len(politicas), "ligados": ligados}
 
@@ -587,13 +590,27 @@ def autostart_definir(projeto, ligado):
     conts = _autostart_alvos(projeto)
     if not conts:
         return False, "nenhum container neste projeto"
-    politica = "unless-stopped" if ligado else "no"
+    politica = "always" if ligado else "no"
     nomes = [c["nome"] for c in conts]
     code, out, err = docker("update", f"--restart={politica}", *nomes, timeout=180)
     if code != 0:
         return False, (err or out).strip()[-300:]
-    return True, ("Sobe sozinho no boot." if ligado
-                  else "Não sobe mais sozinho — você liga pelo painel quando quiser.")
+    # `docker update` morre no primeiro recreate, e a aba Configuração roda
+    # `compose up -d mc` a cada salvamento. Gravar no .env é o que faz a
+    # escolha durar: o compose lê `restart: ${MC_RESTART:-unless-stopped}`.
+    # Só para o projeto deste repositório — igenda e supabase têm o compose
+    # deles, fora do alcance do painel.
+    aviso = ""
+    if projeto == "minecraft":
+        try:
+            write_env({"MC_RESTART": politica})
+        except OSError as e:
+            aviso = (f" Não consegui gravar no .env ({e}): salvar algo na aba "
+                     "Configuração vai desfazer isto.")
+    return True, (("Sobe sozinho no boot, mesmo que você tenha desligado antes."
+                   if ligado else
+                   "Não sobe mais sozinho — você liga pelo painel quando quiser.")
+                  + aviso)
 
 
 # ---------------------------------------------------------------------------

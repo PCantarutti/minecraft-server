@@ -258,6 +258,64 @@ def test_autostart_nunca_toca_no_painel():
     print("ok  autostart nunca mexe no container do painel")
 
 
+def test_autostart_usa_always_e_grava_no_env():
+    """`unless-stopped` não sobe no boot depois de uma parada manual.
+
+    Era o bug: parar o Minecraft à tarde, a máquina desligar por rtcwake e
+    voltar sem ele, com o painel dizendo "sobe sozinho no boot". E `docker
+    update` morre no recreate, então a escolha tem que ir para o .env também.
+    """
+    chamadas = []
+    env_escrito = {}
+    orig_conts = panel.project_containers
+    orig_docker = panel.docker
+    orig_write = panel.write_env
+    panel.project_containers = lambda projeto: [
+        {"nome": "minecraft", "estado": "running", "status": "", "servico": "mc"}]
+    panel.docker = lambda *a, **k: (chamadas.append(a), (0, "", ""))[1]
+    panel.write_env = lambda updates: env_escrito.update(updates)
+    try:
+        ok, msg = panel.autostart_definir("minecraft", True)
+        assert ok, msg
+        assert "--restart=always" in chamadas[0], chamadas[0]
+        assert env_escrito == {"MC_RESTART": "always"}, env_escrito
+
+        chamadas.clear(); env_escrito.clear()
+        ok, _ = panel.autostart_definir("minecraft", False)
+        assert ok
+        assert "--restart=no" in chamadas[0], chamadas[0]
+        assert env_escrito == {"MC_RESTART": "no"}, env_escrito
+
+        # Projeto de outro repositório: política sim, .env deste repo não.
+        chamadas.clear(); env_escrito.clear()
+        panel.autostart_definir("igenda", True)
+        assert "--restart=always" in chamadas[0]
+        assert env_escrito == {}, env_escrito
+    finally:
+        panel.project_containers = orig_conts
+        panel.docker = orig_docker
+        panel.write_env = orig_write
+    print("ok  autostart usa always e persiste no .env")
+
+
+def test_autostart_estado_nao_mente():
+    """unless-stopped não pode aparecer como "sobe sozinho no boot"."""
+    orig_conts = panel.project_containers
+    orig_docker = panel.docker
+    panel.project_containers = lambda projeto: [
+        {"nome": "minecraft", "estado": "running", "status": "", "servico": "mc"}]
+    try:
+        for politica, esperado in [("always", True), ("unless-stopped", False),
+                                   ("no", False), ("", False)]:
+            panel.docker = lambda *a, **k: (0, politica, "")
+            est = panel.autostart_estado("minecraft")
+            assert est["ligado"] is esperado, f"{politica} -> {est}"
+    finally:
+        panel.project_containers = orig_conts
+        panel.docker = orig_docker
+    print("ok  autostart_estado só chama de ligado o always")
+
+
 def test_filtro_do_console():
     """O console não pode ser enterrado pelo ruído do próprio painel, nem
     perder log de verdade junto.
@@ -504,6 +562,8 @@ if __name__ == "__main__":
     test_criar_mundo_valida()
     test_filtro_do_console()
     test_autostart_nunca_toca_no_painel()
+    test_autostart_usa_always_e_grava_no_env()
+    test_autostart_estado_nao_mente()
     test_jogadores_parse()
     test_bytes_de()
     test_exige_digitar()

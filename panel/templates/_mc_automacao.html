@@ -40,8 +40,10 @@
     <hr style="border:none;border-top:1px solid var(--line-soft);margin:18px 0 15px">
 
     <p style="margin:0 0 4px;font-weight:600">Quando a máquina ligar</p>
-    <p class="card-hint">A máquina acorda às 07:00 todo dia. Desligue isto se não
-      quer o Minecraft consumindo RAM e CPU até você entrar para jogar.</p>
+    <p class="card-hint">A máquina desliga e acorda sozinha (aba Energia). Ligado
+      aqui, o Minecraft sobe em todo boot — inclusive depois de você tê-lo
+      desligado à tarde. Desligue isto se não quer ele comendo RAM e CPU até
+      você entrar para jogar.</p>
     <p style="margin:0 0 11px">
       {% if auto.ligado %}<span class="pill ok">sobe sozinho no boot</span>
       {% else %}<span class="pill flat">só sobe quando você mandar</span>{% endif %}
@@ -61,7 +63,9 @@
     </div>
     <p class="hint">O container do painel fica de fora desta escolha, de
       propósito: ele precisa subir sempre, senão a máquina acordaria sem nada
-      para religar o resto pela web.</p>
+      para religar o resto pela web. A escolha também é gravada no
+      <span class="mono">.env</span>, senão salvar qualquer coisa na aba
+      Configuração a desfaria sem avisar.</p>
   </div>
 
   <div class="card">
