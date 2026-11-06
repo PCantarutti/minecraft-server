@@ -49,6 +49,24 @@ PANEL_CONTAINER = os.environ.get("PANEL_CONTAINER", "painel")
 RCON_HOST = os.environ.get("RCON_HOST", "minecraft")
 TZ = ZoneInfo(os.environ.get("TZ", "America/Sao_Paulo"))
 
+# Aviso antes de gravar o mundo. Gravar trava o tick: medido neste servidor,
+# 5,34 s só no overworld. Sem aviso o jogador leva um congelamento sem
+# explicação e acha que caiu.
+FLUSH_AVISO_S = 10
+FLUSH_AVISO_MSG = ("Gravando o mundo em {s} segundos — o servidor vai travar "
+                   "por alguns instantes.")
+
+# Intervalo do autosave do Paper quando o painel assume as gravações.
+# 1728000 ticks = 24 h (20 ticks/s).
+#
+# NÃO é "desligado": o valor que desliga não está documentado pelo Paper, e um
+# número em ticks está — a doc só diz "the world saving interval in ticks".
+# Adivinhar -1 ou 0 aqui seria apostar o mapa. Com 24 h e a máquina
+# reiniciando todo dia, o autosave do Paper na prática nunca dispara; e se o
+# painel morrer, sobra uma gravação por dia em vez de nenhuma.
+PAPER_AUTOSAVE_TICKS = 1728000
+PAPER_WORLD_DEFAULTS = "config/paper-world-defaults.yml"
+
 STATE_FILE = PANEL_DATA / "panel.json"
 RCLONE_CONF = PANEL_DATA / "rclone.conf"
 
@@ -1347,6 +1365,57 @@ def due(key, hhmm, days):
 _last_flush = {"at": 0.0, "erro": ""}
 
 
+def flush_do_mundo(avisar_s=FLUSH_AVISO_S, rcon=None, dormir=None):
+    """Avisa quem está jogando, espera e grava. Devolve a resposta do save.
+
+    `rcon` e `dormir` são injetáveis para o teste poder checar a ORDEM sem
+    falar com servidor nenhum e sem esperar 10 s de verdade.
+    """
+    rcon = rcon or try_rcon
+    dormir = dormir or time.sleep
+    if avisar_s > 0:
+        resp = rcon("say " + FLUSH_AVISO_MSG.format(s=avisar_s))
+        # Servidor parado: não faz sentido esperar 10 s para falhar de novo.
+        if resp.startswith("[rcon indisponível]"):
+            return resp
+        dormir(avisar_s)
+    return rcon("save-all flush")
+
+
+def paper_autosave_texto(texto, valor):
+    """Troca só a linha `auto-save-interval:` do paper-world-defaults.yml.
+
+    Sem parser de YAML de propósito: reescrever o arquivo com um parser mexeria
+    em comentários, ordem e tipos de ~300 linhas que não são nossas. `valor` é
+    um número de ticks ou a palavra "default".
+    """
+    # `.` nao casa newline sem DOTALL, entao `.*` para no fim da linha.
+    novo, achou = re.subn(r"(?m)^(\s*auto-save-interval:).*",
+                          lambda m: f"{m.group(1)} {valor}", texto, count=1)
+    if achou != 1:
+        raise ValueError("não achei a linha `auto-save-interval:` em "
+                         + PAPER_WORLD_DEFAULTS)
+    return novo
+
+
+def paper_autosave_definir(valor):
+    """Escreve o intervalo no config do Paper. Vale no próximo boot do servidor."""
+    path = MC_DATA / PAPER_WORLD_DEFAULTS
+    if not path.exists():
+        return False, f"{PAPER_WORLD_DEFAULTS} não existe — suba o servidor uma vez."
+    try:
+        novo = paper_autosave_texto(path.read_text("utf-8", errors="replace"), valor)
+    except (ValueError, OSError) as e:
+        return False, str(e)
+    try:
+        tmp = path.with_name(path.name + ".tmp")
+        tmp.write_text(novo, "utf-8")
+        tmp.replace(path)
+    except OSError as e:
+        return False, f"não consegui escrever em {PAPER_WORLD_DEFAULTS}: {e}"
+    return True, f"autosave do Paper: {valor}"
+
+
 def flush_due(asv, last, mono):
     """True quando passou o intervalo configurado desde o último flush.
 
@@ -1388,7 +1457,7 @@ def scheduler_loop():
                 log_system(f"agendador: backup {'ok' if ok else 'FALHOU'} — {msg}")
             if flush_due(st["autosave"], _last_flush["at"], time.monotonic()):
                 _last_flush["at"] = time.monotonic()
-                out = try_rcon("save-all flush")
+                out = flush_do_mundo()
                 # Sucesso não vira linha de histórico: a cada 2 min isso
                 # apagaria o resto do log (200 entradas). Falha vira — mas só
                 # uma vez por erro distinto, senão dá no mesmo.
@@ -2451,7 +2520,15 @@ def a_autosave():
     }
     save_state(st)
     audit("flush do mundo configurado", json.dumps(st["autosave"]))
-    return frag_ok("Flush do mundo salvo.")
+    # Com o painel gravando e avisando antes, o autosave do Paper viraria uma
+    # travada sem aviso no meio — não existe como anunciar o save dele, então
+    # o jeito de avisar de TODOS é o painel ser quem grava.
+    alvo = PAPER_AUTOSAVE_TICKS if st["autosave"]["enabled"] else "default"
+    ok, detalhe = paper_autosave_definir(alvo)
+    aviso = ("" if ok else f" Atenção: {detalhe}")
+    return frag_ok(f"Flush do mundo salvo. Aviso de {FLUSH_AVISO_S}s ligado. "
+                   f"O autosave próprio do Paper ({detalhe}) só muda no "
+                   f"próximo reinício do servidor.{aviso}")
 
 
 def valid_int(value, fallback, lo, hi):

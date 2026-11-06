@@ -488,6 +488,42 @@ que estiver no arquivo do projeto.
 Se tirar o igenda do boot, tire o Supabase também — senão a pilha acorda sem
 banco.
 
+### Gravar o mundo: quem grava e quem avisa
+
+Gravar trava o tick do servidor — medido aqui, 5,34 s só no overworld, com dois
+jogadores. Travada sem explicação parece queda de conexão, então a gravação
+periódica do painel anuncia no chat 10 s antes e só então manda
+`save-all flush`.
+
+O autosave do Paper não pode ser anunciado: não há como saber que ele vai
+disparar. Por isso, ligar a gravação periódica no painel escreve
+`chunks.auto-save-interval: 1728000` (24 h em ticks) em
+`config/paper-world-defaults.yml`, e o painel passa a ser quem grava.
+Desligar devolve a chave para `default`. Em ambos os casos **só vale no
+próximo reinício do servidor** — o Paper lê isso no boot.
+
+Não é "desligado" de propósito: o Paper documenta o valor em ticks, mas não
+documenta qual valor desliga. Adivinhar `-1` ou `0` seria apostar o mapa. Com
+24 h, e a máquina reiniciando todo dia, o autosave do Paper nunca chega a
+disparar; e se o container do painel morrer, sobra uma gravação por dia em vez
+de nenhuma.
+
+### Wake-on-LAN
+
+A placa (Realtek RTL8111, driver `r8169`) suporta magic packet. `ethtool -s`
+não sobrevive a reboot, então quem religa isso a cada boot é
+`host/wake-on-lan.service`. Ficou fora do netplan de propósito: YAML
+malformado em `/etc/netplan/` derruba a rede, e com ela o SSH e o painel.
+
+Falta a parte que não é software: no BIOS, "Power On by Onboard LAN" habilitado
+e ErP/EuP **desabilitado** — o ErP corta a energia de standby da placa de rede
+e nenhum pacote chega. Como o desligamento é `rtcwake -m off` (S5, desligada de
+verdade), é essa energia de standby que faz o WoL existir.
+
+Só funciona dentro da LAN: magic packet é broadcast de camada 2, e com a
+máquina desligada não há Tailscale rodando nela. De fora, só o despertador do
+BIOS.
+
 ### Energia: como funciona
 
 O host desliga por `rtcwake` e acorda pelo despertador da placa-mãe. O painel

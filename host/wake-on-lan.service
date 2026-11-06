@@ -1,0 +1,25 @@
+# Habilita Wake-on-LAN na placa de rede a cada boot.
+#
+# Instalado em /etc/systemd/system/wake-on-lan.service e habilitado com
+# `systemctl enable --now wake-on-lan`. Versionado aqui porque `ethtool -s`
+# nao sobrevive a reboot: sem isto, o WoL morre no primeiro desligamento e
+# o magic packet passa a nao fazer nada, sem erro em lugar nenhum.
+#
+# Nao foi para o netplan de proposito: YAML malformado em
+# /etc/netplan/00-installer-config.yaml derruba a rede da maquina, e com
+# ela o SSH e o painel. Um unit novo nao tem como quebrar conectividade.
+#
+# enp2s0 e fixo porque o netplan fixa o nome (set-name). Trocar a placa
+# exige trocar aqui.
+[Unit]
+Description=Habilita Wake-on-LAN (magic packet) em enp2s0
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/sbin/ethtool -s enp2s0 wol g
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

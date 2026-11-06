@@ -134,10 +134,14 @@
         <button class="b-primary" type="submit" hx-disabled-elt="this">Salvar</button>
       </div>
     </form>
-    <p class="hint">Cada gravação trava o tick do servidor por um instante: em
-      1 minuto dá engasgo visível, 2 a 5 é a faixa útil. Acima de 5 não muda
-      nada, porque o Paper já grava por conta própria nesse ritmo — este campo
-      serve para gravar <em>mais</em> vezes, não menos. Vale junto com o
+    <p class="hint">Cada gravação trava o tick do servidor: aqui foram medidos
+      5,34 s só no overworld. Por isso o painel <strong>avisa no chat 10
+      segundos antes</strong> de cada uma — travada sem aviso parece queda.</p>
+    <p class="hint">Ligado, o painel passa a ser quem grava: o autosave próprio
+      do Paper vai para 24 h, porque não existe como anunciar o dele com
+      antecedência. Isso só vale no <strong>próximo reinício</strong> do
+      servidor. Desligado, o Paper volta ao <span class="mono">default</span>
+      (5 min) e aquelas gravações voltam a ser sem aviso. Vale junto com o
       backup diário, não em vez dele.</p>
   </div>
 </div>

@@ -572,6 +572,81 @@ def test_painel_edita_a_linha_acorda():
     print("ok  sed do painel muda só a linha ACORDA= e a leitura acompanha")
 
 
+def test_flush_avisa_antes_de_gravar():
+    """A ordem importa: avisar DEPOIS de gravar não serve para nada."""
+    passos = []
+
+    def rcon_ok(cmd):
+        passos.append(("rcon", cmd))
+        return "Saved the game"
+
+    def dormir(seg):
+        passos.append(("dormiu", seg))
+
+    out = panel.flush_do_mundo(avisar_s=10, rcon=rcon_ok, dormir=dormir)
+    assert out == "Saved the game", out
+    assert len(passos) == 3, passos
+    assert passos[0][0] == "rcon" and passos[0][1].startswith("say "), passos[0]
+    assert "10 segundos" in passos[0][1], passos[0][1]
+    assert passos[1] == ("dormiu", 10), passos[1]
+    assert passos[2] == ("rcon", "save-all flush"), passos[2]
+
+    # Servidor parado: avisa, vê que não há ninguém, e NÃO espera 10 s para
+    # falhar de novo. Sem isso o laço do agendador travaria 10 s por ciclo.
+    passos.clear()
+
+    def rcon_fora(cmd):
+        passos.append(("rcon", cmd))
+        return "[rcon indisponível] connection refused"
+
+    out = panel.flush_do_mundo(avisar_s=10, rcon=rcon_fora, dormir=dormir)
+    assert out.startswith("[rcon indisponível]"), out
+    assert len(passos) == 1, passos
+    assert passos[0][1].startswith("say "), passos[0]
+    assert not any(p[0] == "dormiu" for p in passos), passos
+
+    # avisar_s=0 grava direto: sem say, sem espera.
+    passos.clear()
+    panel.flush_do_mundo(avisar_s=0, rcon=rcon_ok, dormir=dormir)
+    assert passos == [("rcon", "save-all flush")], passos
+    print("ok  flush avisa, espera e só então grava")
+
+
+def test_paper_autosave_texto():
+    """Troca só a linha do autosave; o resto do YAML do Paper fica intocado."""
+    NL = chr(10)
+    original = NL.join([
+        "_version: 31",
+        "chunks:",
+        "  auto-save-interval: default",
+        "  delay-chunk-unloads-by: 10s",
+        "  entity-per-chunk-save-limit:",
+        "    arrow: -1",
+    ]) + NL
+
+    novo = panel.paper_autosave_texto(original, 1728000)
+    assert "  auto-save-interval: 1728000" in novo.splitlines(), novo
+    diff = [(a, b) for a, b in zip(original.splitlines(), novo.splitlines()) if a != b]
+    assert len(diff) == 1, diff
+    assert len(novo.splitlines()) == len(original.splitlines()), "mudou linhas"
+
+    # Indentação preservada: perder os dois espaços quebra o YAML inteiro.
+    linha = [l for l in novo.splitlines() if "auto-save-interval" in l][0]
+    assert linha.startswith("  auto-save-interval:"), repr(linha)
+
+    # Volta para default sem deixar resto do valor antigo na linha.
+    assert panel.paper_autosave_texto(novo, "default") == original
+
+    # Sem a chave, falha alto — em vez de gravar um arquivo que não aplica nada.
+    try:
+        panel.paper_autosave_texto("chunks:" + NL + "  outra-coisa: 1" + NL, 100)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("deveria falhar quando a chave não existe")
+    print("ok  paper_autosave_texto mexe só na linha do autosave")
+
+
 def test_rcon_protocol():
     """Servidor RCON de mentira: confere login, enquadramento e resposta fatiada."""
     srv = socket.socket()
@@ -671,6 +746,8 @@ if __name__ == "__main__":
     test_painel_edita_a_linha_acorda()
     test_valid_int()
     test_flush_due()
+    test_flush_avisa_antes_de_gravar()
+    test_paper_autosave_texto()
     test_rcon_protocol()
     test_rcon_bad_password()
     print("\ntudo passou")
