@@ -12,12 +12,16 @@ Sem framework, sem fixture. Um assert que falha é o sinal.
 
 import io
 import os
+import re
 import socket
+import subprocess
 import struct
 import tempfile
 import threading
 import zipfile
+from datetime import datetime, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 os.environ.setdefault("MC_DATA", tempfile.mkdtemp())
 os.environ.setdefault("PROJECT_DIR", tempfile.mkdtemp())
@@ -475,6 +479,99 @@ def test_valid_int():
         raise AssertionError("texto invalido deveria dar 400")
 
 
+def _script_do_host():
+    """Acha host/desliga-ate-manha no checkout OU dentro do container.
+
+    A imagem do painel é construída a partir de ./panel, então `host/` não
+    entra nela — mas o projeto está montado em /project. Sem este segundo
+    caminho o teste pularia nos dois lugares e não provaria nada.
+    """
+    for p in (Path(__file__).resolve().parent.parent / "host" / "desliga-ate-manha",
+              Path("/project/host/desliga-ate-manha")):
+        if p.exists():
+            return p
+    return None
+
+
+def test_rtcwake_acorda_na_proxima_ocorrencia():
+    """O despertador tem que cair na PRÓXIMA ocorrência do horário.
+
+    O script usava `date -d "tomorrow $ACORDA"`, e o timer dispara às 00:00 —
+    quando "hoje" já é o dia novo. Resultado: acordava no dia seguinte, 39 h
+    desligada em vez de 15 h. Aqui o "agora" é injetado por RTCWAKE_AGORA e o
+    rtcwake é uma função de shell, então nada desliga de verdade.
+    """
+    script = _script_do_host()
+    if script is None:
+        print("skip  rtcwake: host/desliga-ate-manha não está neste contexto")
+        return
+    if os.name != "posix":
+        # O script roda no host Linux. No MSYS do Git Bash o `TZ=... date` por
+        # comando não se aplica ao parse de `-d`, e o teste acusaria um erro de
+        # 3 h que não existe no servidor. Lá (container e host) ele roda.
+        print("skip  rtcwake: cálculo de fuso só confere em POSIX")
+        return
+    texto = script.read_text("utf-8")
+    hora = re.search(r"^ACORDA=(\d{1,2}:\d{2})", texto, re.M)
+    assert hora, "o script precisa da linha ACORDA=HH:MM que o painel edita"
+    hh, mm = (int(x) for x in hora.group(1).split(":"))
+
+    SP = ZoneInfo("America/Sao_Paulo")
+    casos = [
+        # (agora, quantas horas até acordar) — 00:00 é o horário do timer
+        (datetime(2026, 11, 7, 0, 0, tzinfo=SP), 15),
+        (datetime(2026, 11, 6, 14, 11, tzinfo=SP), 0),    # "dormir agora"
+        (datetime(2026, 11, 6, 16, 0, tzinfo=SP), 23),    # já passou: amanhã
+        (datetime(2027, 2, 28, 23, 30, tzinfo=SP), 15),   # vira o mês
+    ]
+    # rtcwake e docker como FUNÇÃO de shell: tem precedência sobre o PATH, não
+    # depende de stub executável e não desliga a máquina de quem roda o teste.
+    prog = (
+        'rtcwake() { echo "$@"; }\n'
+        'docker() { :; }\n'
+        '. "$1"\n'
+    )
+    for agora, _ in casos:
+        r = subprocess.run(["sh", "-c", prog, "sh", str(script)],
+                           capture_output=True, text=True,
+                           env={**os.environ,
+                                "RTCWAKE_AGORA": str(int(agora.timestamp()))})
+        assert r.returncode == 0, r.stderr
+        m = re.search(r"-t\s+(\d+)", r.stdout)
+        assert m, f"rtcwake não recebeu -t: {r.stdout!r} {r.stderr!r}"
+        alvo = datetime.fromtimestamp(int(m.group(1)), SP)
+
+        esperado = agora.replace(hour=hh, minute=mm, second=0, microsecond=0)
+        if esperado <= agora:
+            esperado = datetime.fromtimestamp(
+                int((agora + timedelta(days=1)).timestamp()), SP).replace(
+                    hour=hh, minute=mm, second=0, microsecond=0)
+        assert alvo == esperado, f"agora {agora} -> {alvo}, esperado {esperado}"
+        assert alvo > agora, f"despertador no passado: {alvo} <= {agora}"
+        assert (alvo - agora) <= timedelta(hours=24),             f"mais de 24 h desligada: {agora} -> {alvo}"
+    print("ok  rtcwake acorda na próxima ocorrência, nunca mais de 24 h depois")
+
+
+def test_painel_edita_a_linha_acorda():
+    """O painel troca o horário com sed. Só a linha ACORDA= pode mudar."""
+    script = _script_do_host()
+    if script is None:
+        print("skip  sed do painel: host/desliga-ate-manha não está neste contexto")
+        return
+    antes = script.read_text("utf-8")
+    # Mesmo comando de energia_definir_horarios()
+    depois = subprocess.run(["sed", "s|^ACORDA=.*|ACORDA=09:30|"],
+                            input=antes, capture_output=True, text=True).stdout
+    trocadas = [(a, b) for a, b in zip(antes.splitlines(), depois.splitlines())
+                if a != b]
+    assert len(trocadas) == 1, f"o sed tocou em {len(trocadas)} linhas"
+    assert trocadas[0][1] == "ACORDA=09:30", trocadas[0]
+    # E o regex de leitura tem que achar o valor novo
+    lido = re.search(r"^ACORDA=(\d{1,2}:\d{2})", depois, re.M)
+    assert lido and lido.group(1) == "09:30"
+    print("ok  sed do painel muda só a linha ACORDA= e a leitura acompanha")
+
+
 def test_rcon_protocol():
     """Servidor RCON de mentira: confere login, enquadramento e resposta fatiada."""
     srv = socket.socket()
@@ -570,6 +667,8 @@ if __name__ == "__main__":
     test_password()
     test_env_roundtrip()
     test_valid_hhmm()
+    test_rtcwake_acorda_na_proxima_ocorrencia()
+    test_painel_edita_a_linha_acorda()
     test_valid_int()
     test_flush_due()
     test_rcon_protocol()

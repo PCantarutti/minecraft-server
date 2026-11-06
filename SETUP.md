@@ -495,8 +495,11 @@ lê e mexe nisso entrando nos namespaces do PID 1 pelo socket do Docker
 (`nsenter -t 1`) — sem agente instalado no host e sem regra de sudo.
 
 - **Ligar/desligar** faz `systemctl enable|disable --now` no timer.
-- **Horários** reescrevem o `OnCalendar` do unit (dormir) e o `tomorrow HH:MM`
-  do script (acordar).
+- **Horários** reescrevem o `OnCalendar` do unit (dormir) e a linha
+  `ACORDA=HH:MM` do script (acordar). Depois do `sed` o painel relê o arquivo e
+  confere: `sed` não reclama quando não casa nada, e sem a conferência um
+  script antigo no host deixaria o painel dizendo "horários atualizados" com a
+  máquina acordando no horário velho.
 - **Pular esta noite** dá `systemctl stop` sem desabilitar: o timer voltaria
   sozinho no próximo boot, e como pular a noite significa que não vai haver
   boot, o agendador do painel religa quando o dia virar. É o que usar quando a
@@ -510,6 +513,13 @@ Sem isso ele morre no shutdown do systemd, onde o dockerd mata à força em ~10 
 region file de uma queda de energia, só que todas as noites. Essa parada conta
 como manual, então o container precisa de `MC_RESTART=always` para voltar no
 boot; com `unless-stopped` ele ficaria parado depois de cada noite.
+
+O script acorda na **próxima ocorrência** do horário, não no dia seguinte. Era
+`date -d "tomorrow $ACORDA"`, e o timer dispara às 00:00 — quando "hoje" já é o
+dia novo, então `tomorrow` marcava o dia depois: 39 h desligada em vez de 15 h.
+Também não use `+1 day` junto de uma data absoluta, que devolveu 14:00 no lugar
+de 15:00 no teste; pegar a data de amanhã e só então fixar a hora não tem essa
+ambiguidade.
 
 A cópia versionada do script está em `host/desliga-ate-manha`. O horário de
 acordar vivo é o do host, porque o painel edita o arquivo lá.

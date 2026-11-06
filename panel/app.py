@@ -740,7 +740,10 @@ def energia_estado():
     if m:
         info["dorme"] = m.group(1)
     _, script, _ = host_run("cat", HOST_SCRIPT, timeout=60)
-    m = re.search(r"tomorrow\s+(\d{1,2}:\d{2})", script)
+    # Linha dedicada, e não a expressão do `date`: o script precisa calcular a
+    # próxima ocorrência do horário, e não existe mais um literal
+    # "tomorrow HH:MM" para ler.
+    m = re.search(r"^ACORDA=(\d{1,2}:\d{2})", script, re.M)
     if m:
         info["acorda"] = m.group(1).zfill(5)
     return info
@@ -758,10 +761,20 @@ def energia_definir_horarios(dorme, acorda):
             erros.append((err or out).strip()[-200:])
     if acorda:
         code, out, err = host_run(
-            "sed", "-i", f"s|tomorrow [0-9:]*|tomorrow {acorda}|",
+            "sed", "-i", f"s|^ACORDA=.*|ACORDA={acorda}|",
             HOST_SCRIPT, timeout=60)
         if code != 0:
             erros.append((err or out).strip()[-200:])
+        else:
+            # `sed` não reclama quando não casa nada. Sem conferir, um script
+            # antigo no host (sem a linha ACORDA=) deixaria o painel dizendo
+            # "horários atualizados" e a máquina acordando no horário velho.
+            _, texto, _ = host_run("cat", HOST_SCRIPT, timeout=60)
+            lido = re.search(r"^ACORDA=(\d{1,2}:\d{2})", texto, re.M)
+            if not lido or lido.group(1).zfill(5) != acorda:
+                erros.append("o script do host não tem a linha ACORDA= — o "
+                             "horário de acordar não mudou. Reinstale "
+                             "host/desliga-ate-manha.")
     host_run("systemctl", "daemon-reload", timeout=120)
     if energia_estado().get("ligado"):
         host_run("systemctl", "restart", HOST_TIMER, timeout=120)

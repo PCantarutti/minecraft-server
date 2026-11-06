@@ -1,19 +1,37 @@
 #!/bin/sh
 # Desligamento agendado do host, com acordar pelo relogio da placa-mae.
 #
-# Instalado em /usr/local/bin/desliga-ate-manha. O painel edita o HORARIO de
-# acordar aqui mesmo, com sed na palavra `tomorrow` da ultima linha (aba
-# Energia) -- nao mude a forma dessa linha sem olhar energia_definir_horarios()
-# e energia_estado() em panel/app.py. Esta copia existe para que reinstalar a
-# maquina nao perca o resto do script; o horario vivo e o do host.
-#
-# O `docker stop` antes do rtcwake nao e enfeite: no shutdown do systemd o
-# dockerd manda SIGTERM e mata a forca em ~10s, e salvar um mundo de GBs leva
-# mais que isso -- region file escrito pela metade e mapa corrompido. Aqui o
-# Minecraft recebe 120s para gravar e sair limpo.
+# Instalado em /usr/local/bin/desliga-ate-manha. O painel (aba Energia) edita
+# SO a linha ACORDA= abaixo, com sed -- veja energia_definir_horarios() e
+# energia_estado() em panel/app.py. Esta copia e versionada para que
+# reinstalar a maquina nao perca o script; o horario vivo e o do host.
+ACORDA=15:00
+
+# Para o Minecraft com calma ANTES do rtcwake. No shutdown do systemd quem
+# para o container e o dockerd, que da SIGTERM e mata a forca em ~10s --
+# medido aqui, salvar so o overworld leva 5,34s, e region file escrito pela
+# metade e mapa corrompido. 120s sao de folga.
 #
 # Isto conta como parada manual: so volta no boot porque a politica do
 # container e `always` (MC_RESTART no .env). Com `unless-stopped` o servidor
 # ficaria parado depois de cada noite.
 docker stop -t 120 minecraft 2>/dev/null || true
-rtcwake -m off -t "$(TZ=America/Sao_Paulo date -d 'tomorrow 15:00' +%s)"
+
+# Proxima ocorrencia de ACORDA depois de agora.
+#
+# NAO use `date -d "tomorrow $ACORDA"`: o timer dispara a 00:00, quando o
+# "hoje" ja e o dia novo, e "tomorrow" marcava o dia seguinte -- 39 horas
+# desligada em vez de 15. E tambem nao use "+1 day" junto de uma data
+# absoluta: o GNU date devolveu 14:00 no lugar de 15:00 no teste. Pegar a
+# data do dia seguinte e so depois fixar a hora nao tem essa ambiguidade.
+#
+# RTCWAKE_AGORA existe para o teste injetar um "agora" fixo.
+AGORA=${RTCWAKE_AGORA:-$(date +%s)}
+HOJE=$(TZ=America/Sao_Paulo date -d "@$AGORA" +%Y-%m-%d)
+ALVO=$(TZ=America/Sao_Paulo date -d "$HOJE $ACORDA" +%s)
+if [ "$ALVO" -le "$AGORA" ]; then
+  AMANHA=$(TZ=America/Sao_Paulo date -d "@$((AGORA + 86400))" +%Y-%m-%d)
+  ALVO=$(TZ=America/Sao_Paulo date -d "$AMANHA $ACORDA" +%s)
+fi
+
+rtcwake -m off -t "$ALVO"
