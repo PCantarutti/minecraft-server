@@ -110,6 +110,32 @@
       </div>
     </form>
   </div>
+
+  <div class="card">
+    <h3>Gravar o mundo no disco</h3>
+    <p class="card-hint">Manda o servidor descarregar o mundo em disco de tempo
+      em tempo. Encurta o que uma queda de energia leva embora — o mundo vive
+      em memória entre uma gravação e outra.</p>
+    <form hx-post="/a/autosave" hx-target="#flash" hx-swap="innerHTML">
+      <div class="check" style="margin-bottom:13px">
+        <input type="checkbox" id="as-on" name="enabled" {% if asv.enabled %}checked{% endif %}>
+        <label for="as-on" style="margin:0;color:var(--fg);font-size:var(--fs-base)">Gravação periódica ativa</label>
+      </div>
+      <div class="fields">
+        <div><label for="as-min">A cada quantos minutos</label>
+          <input id="as-min" type="number" name="every_min" min="1" max="120"
+                 value="{{ asv.every_min }}"></div>
+      </div>
+      <div style="margin-top:15px">
+        <button class="b-primary" type="submit" hx-disabled-elt="this">Salvar</button>
+      </div>
+    </form>
+    <p class="hint">Cada gravação trava o tick do servidor por um instante: em
+      1 minuto dá engasgo visível, 2 a 5 é a faixa útil. Acima de 5 não muda
+      nada, porque o Paper já grava por conta própria nesse ritmo — este campo
+      serve para gravar <em>mais</em> vezes, não menos. Vale junto com o
+      backup diário, não em vez dele.</p>
+  </div>
 </div>
 
 <form id="form-backups" hx-post="/a/backup/delete" hx-target="#flash" hx-swap="innerHTML"

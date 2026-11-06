@@ -207,6 +207,13 @@ def default_state():
             "days": [0, 1, 2, 3, 4, 5, 6],   # 0 = segunda
             "restart_at": "",
         },
+        # Flush periódico do mundo no disco. Não substitui o autosave do
+        # Paper (5 min): só adiciona gravações forçadas no meio dele, para
+        # encurtar o que uma queda de energia leva embora.
+        "autosave": {
+            "enabled": False,
+            "every_min": 5,
+        },
         "backup": {
             "enabled": False,
             "at": "04:00",
@@ -1305,6 +1312,26 @@ def due(key, hhmm, days):
     return True
 
 
+# Último flush: monotonic (imune a ajuste de relógio) + o último erro já
+# registrado, para não repetir a mesma linha no histórico a cada intervalo.
+_last_flush = {"at": 0.0, "erro": ""}
+
+
+def flush_due(asv, last, mono):
+    """True quando passou o intervalo configurado desde o último flush.
+
+    Separado do loop porque é a única regra aqui que vale testar.
+    """
+    if not asv.get("enabled"):
+        return False
+    try:
+        every = int(asv.get("every_min") or 5)
+    except (TypeError, ValueError):
+        every = 5
+    every = max(1, min(120, every))
+    return (mono - last) >= every * 60
+
+
 def scheduler_loop():
     while True:
         try:
@@ -1329,6 +1356,16 @@ def scheduler_loop():
             if bkp.get("enabled") and due("backup", bkp.get("at"), list(range(7))):
                 ok, msg = backup_now("auto")
                 log_system(f"agendador: backup {'ok' if ok else 'FALHOU'} — {msg}")
+            if flush_due(st["autosave"], _last_flush["at"], time.monotonic()):
+                _last_flush["at"] = time.monotonic()
+                out = try_rcon("save-all flush")
+                # Sucesso não vira linha de histórico: a cada 2 min isso
+                # apagaria o resto do log (200 entradas). Falha vira — mas só
+                # uma vez por erro distinto, senão dá no mesmo.
+                erro = out if out.startswith("[rcon indisponível]") else ""
+                if erro and erro != _last_flush["erro"]:
+                    log_system(f"agendador: flush do mundo falhou — {erro[:160]}")
+                _last_flush["erro"] = erro
         except Exception as e:                      # thread nunca pode morrer
             log_system(f"agendador: erro inesperado — {e}")
         time.sleep(20)
@@ -1582,6 +1619,7 @@ def render_aba(chave, aba):
         st = load_state()
         return render_template("_mc_automacao.html", backups=list_backups(),
                                cfg=st["backup"], sch=st["schedule"],
+                               asv=st["autosave"],
                                rclone_ok=RCLONE_CONF.exists(),
                                auto=autostart_estado("minecraft"))
     if aba == "config":
@@ -2371,6 +2409,28 @@ def a_schedule():
     save_state(st)
     audit("agendamento salvo", json.dumps(st["schedule"]))
     return frag_ok("Agendamento salvo.")
+
+
+@app.post("/a/autosave")
+@login_required
+def a_autosave():
+    st = load_state()
+    st["autosave"] = {
+        "enabled": request.form.get("enabled") == "on",
+        "every_min": valid_int(request.form.get("every_min"), 5, 1, 120),
+    }
+    save_state(st)
+    audit("flush do mundo configurado", json.dumps(st["autosave"]))
+    return frag_ok("Flush do mundo salvo.")
+
+
+def valid_int(value, fallback, lo, hi):
+    value = (value or "").strip()
+    try:
+        n = int(value) if value else fallback
+    except ValueError:
+        abort(400, "número inválido")
+    return max(lo, min(hi, n))
 
 
 def valid_hhmm(value, fallback):

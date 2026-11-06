@@ -383,6 +383,40 @@ def test_valid_hhmm():
     print("ok  valid_hhmm rejeita horário inválido")
 
 
+def test_flush_due():
+    desligado = {"enabled": False, "every_min": 1}
+    assert panel.flush_due(desligado, 0.0, 10_000) is False
+
+    cada5 = {"enabled": True, "every_min": 5}
+    assert panel.flush_due(cada5, 1000.0, 1000.0 + 299) is False
+    assert panel.flush_due(cada5, 1000.0, 1000.0 + 300) is True
+
+    # Fora de faixa e lixo no campo não podem virar flush a cada ciclo de 20 s
+    # (travaria o tick do servidor sem parar) nem intervalo infinito.
+    # 0, vazio e lixo caem no default de 5 min — nunca em "a cada ciclo",
+    # que travaria o tick do servidor a cada 20 s.
+    assert panel.flush_due({"enabled": True, "every_min": 0}, 0.0, 299) is False
+    assert panel.flush_due({"enabled": True, "every_min": 0}, 0.0, 300) is True
+    assert panel.flush_due({"enabled": True, "every_min": 9999}, 0.0, 7199) is False
+    assert panel.flush_due({"enabled": True, "every_min": 9999}, 0.0, 7200) is True
+    assert panel.flush_due({"enabled": True, "every_min": "abc"}, 0.0, 299) is False
+    assert panel.flush_due({"enabled": True, "every_min": None}, 0.0, 300) is True
+
+
+def test_valid_int():
+    assert panel.valid_int("7", 5, 1, 120) == 7
+    assert panel.valid_int("", 5, 1, 120) == 5
+    assert panel.valid_int(None, 5, 1, 120) == 5
+    assert panel.valid_int("0", 5, 1, 120) == 1
+    assert panel.valid_int("999", 5, 1, 120) == 120
+    try:
+        panel.valid_int("; rm -rf /", 5, 1, 120)
+    except Exception as e:
+        assert "400" in repr(e) or "Bad Request" in repr(e), repr(e)
+    else:
+        raise AssertionError("texto invalido deveria dar 400")
+
+
 def test_rcon_protocol():
     """Servidor RCON de mentira: confere login, enquadramento e resposta fatiada."""
     srv = socket.socket()
@@ -476,6 +510,8 @@ if __name__ == "__main__":
     test_password()
     test_env_roundtrip()
     test_valid_hhmm()
+    test_valid_int()
+    test_flush_due()
     test_rcon_protocol()
     test_rcon_bad_password()
     print("\ntudo passou")
