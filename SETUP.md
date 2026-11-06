@@ -504,6 +504,16 @@ lê e mexe nisso entrando nos namespaces do PID 1 pelo socket do Docker
 - **Desligar agora** roda o mesmo script do agendamento: cai tudo e a máquina
   volta sozinha no horário de acordar.
 
+O script para o Minecraft com `docker stop -t 120` antes de chamar o `rtcwake`.
+Sem isso ele morre no shutdown do systemd, onde o dockerd mata à força em ~10 s
+— e salvar um mundo de alguns GB não cabe nesse tempo. É a mesma corrupção de
+region file de uma queda de energia, só que todas as noites. Essa parada conta
+como manual, então o container precisa de `MC_RESTART=always` para voltar no
+boot; com `unless-stopped` ele ficaria parado depois de cada noite.
+
+A cópia versionada do script está em `host/desliga-ate-manha`. O horário de
+acordar vivo é o do host, porque o painel edita o arquivo lá.
+
 O relógio do sistema está em UTC e o painel em America/Sao_Paulo — os horários
 na interface são sempre de São Paulo, já convertidos.
 

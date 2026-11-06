@@ -1,0 +1,19 @@
+#!/bin/sh
+# Desligamento agendado do host, com acordar pelo relogio da placa-mae.
+#
+# Instalado em /usr/local/bin/desliga-ate-manha. O painel edita o HORARIO de
+# acordar aqui mesmo, com sed na palavra `tomorrow` da ultima linha (aba
+# Energia) -- nao mude a forma dessa linha sem olhar energia_definir_horarios()
+# e energia_estado() em panel/app.py. Esta copia existe para que reinstalar a
+# maquina nao perca o resto do script; o horario vivo e o do host.
+#
+# O `docker stop` antes do rtcwake nao e enfeite: no shutdown do systemd o
+# dockerd manda SIGTERM e mata a forca em ~10s, e salvar um mundo de GBs leva
+# mais que isso -- region file escrito pela metade e mapa corrompido. Aqui o
+# Minecraft recebe 120s para gravar e sair limpo.
+#
+# Isto conta como parada manual: so volta no boot porque a politica do
+# container e `always` (MC_RESTART no .env). Com `unless-stopped` o servidor
+# ficaria parado depois de cada noite.
+docker stop -t 120 minecraft 2>/dev/null || true
+rtcwake -m off -t "$(TZ=America/Sao_Paulo date -d 'tomorrow 15:00' +%s)"

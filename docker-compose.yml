@@ -94,6 +94,11 @@ services:
     cpu_shares: 256
     # Candidato nº1 do OOM killer. Protege a stack do negócio.
     oom_score_adj: 800
+    # Tempo para gravar o mundo e sair no SIGTERM. O default de 10s mata um
+    # mundo de GBs no meio da escrita. No shutdown do systemd o dockerd ainda
+    # impõe o teto dele (15s), e é por isso que o script do host para o
+    # container ANTES de chamar o rtcwake — veja host/desliga-ate-manha.
+    stop_grace_period: 120s
     stdin_open: true
     tty: true
     healthcheck:
