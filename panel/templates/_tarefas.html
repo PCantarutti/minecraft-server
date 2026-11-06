@@ -1,0 +1,68 @@
+{# Se atualiza sozinho: gerenciador de tarefas que não se mexe não serve. #}
+<div id="tarefas" hx-get="/f/aba/servidor/tarefas" hx-trigger="every 5s"
+     hx-swap="outerHTML">
+
+  <div class="stats" style="margin-top:16px">
+    <div class="stat"><div class="k">Memória da máquina</div>
+      <div class="v">{{ t.mem_pct }}%</div>
+      <div class="bar"><i style="width:{{ t.mem_pct }}%;
+        background:{% if t.mem_pct > 90 %}var(--red){% elif t.mem_pct > 75 %}var(--amber){% else %}var(--green){% endif %}"></i></div>
+      <div class="n">{{ t.mem_usada }} de {{ t.mem_total }} · {{ t.mem_livre }} livres</div></div>
+
+    <div class="stat"><div class="k">CPU em containers</div>
+      <div class="v">{{ t.cpu_total }}%</div>
+      <div class="bar"><i style="width:{{ t.cpu_total if t.cpu_total < 100 else 100 }}%;
+        background:{% if t.cpu_total > 80 %}var(--amber){% else %}var(--green){% endif %}"></i></div>
+      <div class="n">da máquina inteira · {{ t.nucleos }} threads</div></div>
+
+    <div class="stat"><div class="k">Carga do sistema</div>
+      <div class="v tnum">{{ t.carga }}</div>
+      <div class="n">1, 5 e 15 min · satura acima de {{ t.nucleos }}</div></div>
+
+    <div class="stat"><div class="k">Memória em containers</div>
+      <div class="v">{{ t.containers_mem_pct }}%</div>
+      <div class="n">o resto é sistema e cache de disco</div></div>
+  </div>
+
+  {% for g in t.grupos %}
+  <div class="card">
+    <h3>{{ g.label }}
+      <span class="dim" style="font-weight:400;font-size:var(--fs-micro)">
+        · {{ g.cpu }}% CPU · {{ g.mem }}</span>
+    </h3>
+    <p class="card-hint">{{ g.itens | length }} container(s) em execução.</p>
+    <div class="rows">
+      {% for i in g.itens %}
+      <div class="row" style="padding:10px 13px">
+        <div class="info">
+          <div class="t mono" style="font-size:var(--fs-micro)">{{ i.nome }}</div>
+          <div class="m">{{ i.pids }} processos</div>
+        </div>
+        <div style="flex:0 0 150px">
+          <div class="m">CPU {{ i.cpu_maq }}%</div>
+          <div class="bar" style="margin-top:4px"><i style="width:{{ i.cpu_maq if i.cpu_maq < 100 else 100 }}%"></i></div>
+        </div>
+        <div style="flex:0 0 190px">
+          <div class="m">{{ i.mem }} · {{ i.mem_pct }} do teto</div>
+          <div class="bar" style="margin-top:4px"><i style="width:{{ i.mem_pct|replace('%','') }}%;
+            background:{% if i.mem_pct|replace('%','')|float > 90 %}var(--amber){% else %}var(--green){% endif %}"></i></div>
+        </div>
+      </div>
+      {% else %}
+      <div class="empty">Nada em execução nesta pilha.</div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endfor %}
+
+  <div class="card">
+    <h3>Como ler estes números</h3>
+    <p class="card-hint" style="margin:0">
+      O CPU vem normalizado para a máquina inteira: o Docker mede sobre um
+      núcleo só, então 320% no <span class="mono">docker stats</span> vira 40%
+      aqui, com {{ t.nucleos }} threads. A memória de cada container é mostrada
+      contra o <strong>teto dele</strong>, não contra a máquina — o Minecraft
+      perto de 100% é a JVM ocupando o heap que você reservou, não falta de RAM.
+    </p>
+  </div>
+</div>

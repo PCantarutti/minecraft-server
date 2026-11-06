@@ -1,0 +1,81 @@
+{% if not e.disponivel %}
+<div class="card">
+  <h3>Não consegui falar com a máquina</h3>
+  <div class="note">{{ e.erro }}</div>
+  <p class="hint">O painel lê o agendamento entrando nos namespaces do PID 1 pelo
+    socket do Docker. Se isso falhar, o timer continua funcionando normalmente no
+    host — só o controle pelo painel fica fora.</p>
+</div>
+{% else %}
+
+{% include "_energia_estado.html" %}
+
+<div class="cards">
+  <div class="card">
+    <h3>Ligar e desligar o agendamento</h3>
+    <p class="card-hint">Desligado, a máquina fica acordada até você mandar o
+      contrário. A conta de luz é sua.</p>
+    <div style="display:flex;gap:9px;flex-wrap:wrap">
+      <form hx-post="/a/energia/ligar" hx-target="#flash" hx-swap="innerHTML">
+        <input type="hidden" name="ligado" value="1">
+        <button class="b-go" type="submit" hx-disabled-elt="this"
+                {% if e.ligado %}disabled{% endif %}>Ligar agendamento</button>
+      </form>
+      <form hx-post="/a/energia/ligar" hx-target="#flash" hx-swap="innerHTML"
+        hx-confirm="Desligar o agendamento? A máquina passa a ficar ligada 24 h por dia.">
+        <input type="hidden" name="ligado" value="0">
+        <button class="b-stop" type="submit" hx-disabled-elt="this"
+                {% if not e.ligado %}disabled{% endif %}
+         >Desligar agendamento</button>
+      </form>
+      <form hx-post="/a/energia/pular" hx-target="#flash" hx-swap="innerHTML"
+        hx-confirm="Pular só esta noite? Amanhã volta ao normal sozinho.">
+        <button type="submit" hx-disabled-elt="this"
+                {% if not e.ligado or pular == hoje %}disabled{% endif %}
+         >Pular esta noite</button>
+      </form>
+    </div>
+    <p class="hint">"Pular esta noite" para o timer sem desabilitar nada. É o que
+      usar quando a noite vai virar — em vez de desligar o agendamento e esquecer
+      de religar.</p>
+  </div>
+
+  <div class="card">
+    <h3>Horários</h3>
+    <p class="card-hint">Dormir reescreve o timer do systemd; acordar reescreve o
+      despertador do relógio da placa-mãe, que é quem liga a máquina de volta.</p>
+    <form hx-post="/a/energia/horarios" hx-target="#flash" hx-swap="innerHTML">
+      <div class="fields">
+        <div><label for="dorme">Dorme às</label>
+          <input id="dorme" type="time" name="dorme" value="{{ e.dorme if e.dorme != '—' else '' }}"></div>
+        <div><label for="acorda">Acorda às</label>
+          <input id="acorda" type="time" name="acorda" value="{{ e.acorda if e.acorda != '—' else '' }}"></div>
+      </div>
+      <div style="margin-top:15px">
+        <button class="b-primary" type="submit" hx-disabled-elt="this">Salvar horários</button>
+        <span class="spin">gravando no host…</span>
+      </div>
+    </form>
+    <p class="hint">Horário de São Paulo. O relógio do sistema operacional está em
+      UTC, três horas à frente — o painel já converte.</p>
+  </div>
+</div>
+
+<div class="card">
+  <h3>Desligar agora</h3>
+  <p class="card-hint">Mesma coisa que o agendamento faz: desliga de verdade e
+    deixa o despertador armado.</p>
+  <div class="note">
+    A máquina some da rede imediatamente — este painel, o Minecraft e o igenda
+    vão junto. Ela volta sozinha às <strong>{{ e.acorda }}</strong>. Antes disso,
+    só apertando o botão físico.
+  </div>
+  <form hx-post="/a/energia/dormir-agora" hx-target="#flash" hx-swap="innerHTML"
+        style="margin-top:13px"
+        hx-prompt="Isto desliga a máquina INTEIRA: painel, Minecraft, igenda e Supabase. Ela volta às {{ e.acorda }}. Digite DESLIGAR para confirmar.">
+    <button class="b-stop" type="submit" hx-disabled-elt="this"
+     >
+      Desligar a máquina agora</button>
+  </form>
+</div>
+{% endif %}

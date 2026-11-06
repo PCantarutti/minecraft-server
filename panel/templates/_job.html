@@ -1,0 +1,27 @@
+{# Enquanto algo longo roda, este bloco se atualiza a cada 2s. Parado, some. #}
+<div id="job" hx-get="/f/job"
+     hx-trigger="{% if backup.estado == 'rodando' or restore.estado == 'rodando' %}every 2s{% else %}every 10s{% endif %}"
+     hx-swap="outerHTML">
+  {% for nome, j in [('Backup', backup), ('Restauração', restore)] %}
+    {% if j.estado == 'rodando' %}
+    <div class="card">
+      <h3>{{ nome }} em andamento <span class="pill warn">{{ j.pct|default(0) }}%</span></h3>
+      <p class="card-hint">{{ j.arquivo|default('') }}
+        {% if j.feito %}· {{ j.feito }} de aproximadamente {{ j.total }}{% endif %}</p>
+      {# scaleX em vez de width: anima no compositor, sem recalcular layout
+         a cada quadro enquanto o backup corre. #}
+      <div class="bar" style="height:8px"><i style="width:100%;background:var(--blue);
+        transform:scaleX({{ (j.pct|default(0)) / 100 }});transition:transform .4s ease"></i></div>
+      <p class="hint">A porcentagem é estimada pelo tamanho que já saiu — o
+        <span class="mono">tar</span> não reporta progresso. Também sai no log do
+        painel: <span class="mono">docker compose logs -f painel</span>.
+        {% if nome == 'Restauração' %}O servidor volta sozinho ao terminar.{% endif %}</p>
+    </div>
+    {% elif j.estado == 'falhou' %}
+    <div class="card">
+      <h3>{{ nome }} falhou</h3>
+      <div class="note">{{ j.mensagem or j.erro or 'sem detalhe' }}</div>
+    </div>
+    {% endif %}
+  {% endfor %}
+</div>

@@ -1,0 +1,14 @@
+<div class="card">
+  <h3>Editando <span class="mono dim">{{ path }}</span></h3>
+  <form hx-post="/a/file/save" hx-target="#flash" hx-swap="innerHTML">
+    <input type="hidden" name="path" value="{{ path }}">
+    <textarea name="content" rows="20" spellcheck="false">{{ content }}</textarea>
+    <div style="display:flex;gap:9px;margin-top:13px">
+      <button class="b-primary" type="submit">Salvar</button>
+      <button type="button" onclick="document.getElementById('editor').innerHTML=''">Fechar</button>
+    </div>
+  </form>
+  <p class="hint">O itzg reescreve o <span class="mono">server.properties</span> a partir das
+    variáveis a cada start — edição ali é perdida no próximo restart. Para essas opções,
+    use a aba Configurações.</p>
+</div>

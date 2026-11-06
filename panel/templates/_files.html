@@ -1,0 +1,61 @@
+<div class="card">
+  <h3>Arquivos <span class="mono dim" style="font-weight:400">/data/{{ cwd }}</span></h3>
+  <p class="card-hint">Envie plugin para <span class="mono">plugins/</span> ou edite config.
+    Reinicie o servidor depois para carregar.</p>
+
+  <div style="display:flex;gap:9px;flex-wrap:wrap;margin-bottom:13px">
+    {% if not at_root %}
+    <button class="b-sm" hx-get="/f/files?path={{ parent|urlencode }}"
+            hx-target="#filebrowser" hx-swap="innerHTML">← voltar</button>
+    {% endif %}
+    <button class="b-sm" hx-get="/f/files?path={{ cwd|urlencode }}"
+            hx-target="#filebrowser" hx-swap="innerHTML">Atualizar</button>
+  </div>
+
+  <table>
+    <tr><th>Nome</th><th>Tamanho</th><th style="width:1%"></th></tr>
+    {% for e in entries %}
+    <tr>
+      <td>
+        {% if e.dir %}
+          <button class="b-sm b-ghost" style="border-color:var(--line)"
+                  hx-get="/f/files?path={{ e.rel|urlencode }}"
+                  hx-target="#filebrowser" hx-swap="innerHTML">{{ e.name }}/</button>
+        {% else %}
+          <span class="mono" style="font-size:var(--fs-micro)">{{ e.name }}</span>
+        {% endif %}
+      </td>
+      <td class="dim tnum" style="font-size:var(--fs-micro)">{{ e.size }}</td>
+      <td>
+        <div style="display:flex;gap:7px;flex-wrap:wrap;justify-content:flex-end">
+          {% if e.editable %}
+          <button class="b-sm" hx-get="/a/file/open?path={{ e.rel|urlencode }}"
+                  hx-target="#editor" hx-swap="innerHTML">Editar</button>
+          {% endif %}
+          {% if not e.dir %}
+          <a class="btn b-sm" href="/a/file/download?path={{ e.rel|urlencode }}">Baixar</a>
+          {% endif %}
+          <form hx-post="/a/file/delete" hx-target="#flash" hx-swap="innerHTML"
+        hx-confirm="Apagar {{ e.name }}{% if e.dir %} e tudo dentro{% endif %}?">
+            <input type="hidden" name="path" value="{{ e.rel }}">
+            <button class="b-sm b-stop" type="submit"
+             >Apagar</button>
+          </form>
+        </div>
+      </td>
+    </tr>
+    {% else %}
+    <tr><td colspan="3"><div class="empty">Pasta vazia.</div></td></tr>
+    {% endfor %}
+  </table>
+
+  <form hx-post="/a/file/upload" hx-target="#flash" hx-swap="innerHTML"
+        hx-encoding="multipart/form-data" style="margin-top:15px">
+    <input type="hidden" name="path" value="{{ cwd }}">
+    <div class="inline">
+      <div><label for="upf">Enviar arquivo para esta pasta</label>
+        <input id="upf" type="file" name="file"></div>
+      <div class="fit"><button type="submit">Enviar</button></div>
+    </div>
+  </form>
+</div>

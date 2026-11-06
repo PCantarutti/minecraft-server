@@ -1,0 +1,19 @@
+<div hx-get="/f/aba/servidor/historico" hx-trigger="every 20s, panel-refresh from:body" hx-swap="outerHTML">
+<div class="card">
+  <h3>Histórico</h3>
+  <p class="card-hint">Tudo que o painel fez — por você ou pelo agendador. Últimos 80.</p>
+  <table>
+    <tr><th>Quando</th><th>Ação</th><th>Detalhe</th><th>Quem</th></tr>
+    {% for a in audit %}
+    <tr>
+      <td class="mono tnum" style="font-size:var(--fs-micro);white-space:nowrap">{{ a.at }}</td>
+      <td>{{ a.action }}</td>
+      <td class="dim mono" style="font-size:var(--fs-micro)">{{ a.detail }}</td>
+      <td class="dim">{{ a.user }}</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="4"><div class="empty">Nada registrado ainda.<br>Toda ação pelo painel aparece aqui.</div></td></tr>
+    {% endfor %}
+  </table>
+</div>
+</div>

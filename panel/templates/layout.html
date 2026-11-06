@@ -1,0 +1,276 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}Painel do Servidor{% endblock %}</title>
+<script src="{{ url_for('static', filename='htmx.min.js') }}"></script>
+<style>
+  /* Inter servida do próprio container: a rede deste servidor filtra domínios,
+     e a pilha do sistema cairia em Segoe UI, que não é o grotesco neutro da
+     referência. font-display:swap para o painel nunca esperar a fonte. */
+  @font-face{font-family:Inter;src:url("{{ url_for('static', filename='inter-400.woff2') }}") format("woff2");
+             font-weight:400;font-style:normal;font-display:swap}
+  @font-face{font-family:Inter;src:url("{{ url_for('static', filename='inter-600.woff2') }}") format("woff2");
+             font-weight:600;font-style:normal;font-display:swap}
+  @font-face{font-family:Inter;src:url("{{ url_for('static', filename='inter-700.woff2') }}") format("woff2");
+             font-weight:700;font-style:normal;font-display:swap}
+  :root{
+    /* Chrome de aplicativo escuro. Três profundidades: moldura, cartão,
+       controle. Sem gradiente, sem sombra decorativa — profundidade vem de
+       um degrau de luminância e de uma linha de 1px. */
+    --app:#1a1b1e; --side:#1f2023; --card:#25262a; --ctrl:#2c2d33;
+    --line:#35363d; --line-soft:#2b2c32;
+    --fg:#e6e7ea; --dim:#989aa2; --dimmer:#6e707a;
+
+    /* Cor só carrega consequência: azul é ação principal, verde liga,
+       vermelho desliga ou apaga, âmbar é transição. Nada decorativo. */
+    --blue:#2f7fef; --blue-hi:#4b93f5; --blue-dim:#1b4f94;
+    --green:#3dab62; --green-dim:#1f5c36;
+    --red:#e5484d; --red-dim:#7a2b2e;
+    --amber:#e0a23c;
+    /* Tinta sobre fundo de acento e tintas dos selos/avisos. Eram valores
+       soltos; viraram token para o DESIGN.md continuar verdadeiro. */
+    --on-accent:#fff; --ok-ink:#64c285; --bad-ink:#f0787c;
+    --danger-ink:#e9b6b8; --calm-ink:#b9cdea;
+
+    --fs-micro:12px; --fs-base:15px; --fs-lg:19px; --fs-xl:26px;
+    --r:8px; --r-sm:6px;
+    --side-w:272px;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{margin:0;background:var(--app);color:var(--fg);overflow:hidden;
+       font:var(--fs-base)/1.5 Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+       -webkit-font-smoothing:antialiased}
+  a{color:var(--blue-hi)}
+  ::-webkit-scrollbar{width:11px;height:11px}
+  ::-webkit-scrollbar-thumb{background:#3a3b42;border-radius:6px;border:3px solid transparent;background-clip:content-box}
+  ::-webkit-scrollbar-thumb:hover{background:#4a4b53;background-clip:content-box}
+  ::-webkit-scrollbar-track{background:transparent}
+
+  /* ---- esqueleto ---------------------------------------------------- */
+  .shell{display:grid;grid-template-columns:var(--side-w) 1fr;height:100vh}
+  .side{background:var(--side);border-right:1px solid var(--line);
+        display:flex;flex-direction:column;min-height:0}
+  .main{display:flex;flex-direction:column;min-height:0;min-width:0}
+  .main-scroll{overflow:auto;padding:0 24px 28px;flex:1;min-height:0}
+
+  /* ---- controles ----------------------------------------------------- */
+  button,.btn{background:var(--ctrl);color:var(--fg);border:1px solid var(--line);
+    padding:7px 13px;border-radius:var(--r-sm);cursor:pointer;font:inherit;
+    font-size:var(--fs-base);text-decoration:none;display:inline-flex;
+    align-items:center;gap:7px;white-space:nowrap;line-height:1.2;
+    transition:background .14s ease,border-color .14s ease,color .14s ease}
+  button:hover,.btn:hover{background:#34353c;border-color:#45464e}
+  button:focus-visible,.btn:focus-visible,input:focus-visible,select:focus-visible,
+  textarea:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
+  button:disabled{opacity:.42;cursor:not-allowed}
+  button:disabled:hover{background:var(--ctrl);border-color:var(--line)}
+  .b-primary{background:var(--blue);border-color:var(--blue);color:var(--on-accent);font-weight:600}
+  .b-primary:hover{background:var(--blue-hi);border-color:var(--blue-hi)}
+  .b-go{background:var(--green);border-color:var(--green);color:#06230f;font-weight:600}
+  .b-go:hover{background:#49c070;border-color:#49c070}
+  .b-stop{background:transparent;border-color:var(--red-dim);color:var(--red)}
+  .b-stop:hover{background:rgba(229,72,77,.12);border-color:var(--red)}
+  .b-sm{padding:4px 10px;font-size:var(--fs-micro)}
+  .b-ghost{background:transparent}
+  input,select,textarea{background:var(--ctrl);color:var(--fg);
+    border:1px solid var(--line);border-radius:var(--r-sm);padding:7px 10px;
+    font:inherit;font-size:var(--fs-base);width:100%}
+  input::placeholder{color:var(--dimmer)}
+  textarea{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:var(--fs-micro);line-height:1.6}
+  label{display:block;font-size:var(--fs-micro);color:var(--dim);margin-bottom:5px}
+  input[type=checkbox]{width:auto;accent-color:var(--blue)}
+
+  /* ---- lateral ------------------------------------------------------- */
+  .side-top{padding:14px 14px 12px;border-bottom:1px solid var(--line-soft)}
+  .side-brand{display:flex;align-items:center;gap:9px;font-weight:700;
+              font-size:var(--fs-base);letter-spacing:-.01em}
+  .side-brand .mark{width:22px;height:22px;border-radius:5px;background:var(--blue);
+    display:grid;place-items:center;color:var(--on-accent);font-size:var(--fs-micro);font-weight:700}
+  .side-head{padding:14px 14px 9px}
+  .side-head h2{margin:0 0 9px;font-size:var(--fs-base);font-weight:700}
+  .side-head .count{color:var(--dim);font-weight:400}
+  .side-head .acts{display:flex;gap:7px}
+  .side-head .acts button{flex:1;justify-content:center}
+  .side-search{padding:0 14px 10px}
+  .side-list{overflow:auto;padding:0 10px 10px;flex:1;min-height:0}
+  .side-foot{padding:12px 14px;border-top:1px solid var(--line-soft);
+             display:flex;flex-direction:column;gap:8px}
+
+  .item{width:100%;display:flex;align-items:center;gap:10px;text-align:left;
+        background:transparent;border:1px solid transparent;border-radius:var(--r);
+        padding:9px 10px;cursor:pointer;margin-bottom:3px}
+  .item:hover{background:#26272c;border-color:transparent}
+  .item.on{background:#242933;border-color:var(--blue-dim)}
+  .item .dot{width:9px;height:9px;border-radius:50%;flex:0 0 auto;background:var(--dimmer)}
+  .item .dot.no-ar{background:var(--green);box-shadow:0 0 0 3px rgba(61,171,98,.16)}
+  .item .dot.parcial{background:var(--amber);box-shadow:0 0 0 3px rgba(224,162,60,.16)}
+  .item .dot.parado{background:#5a5c66}
+  .item .txt{min-width:0;flex:1;overflow:hidden}
+  /* display:block é obrigatório: span dentro de span fica inline e o nome
+     cola no subtítulo numa linha só, que foi o que a inspeção pegou. */
+  .item .nm{display:block;font-size:var(--fs-base);font-weight:600;
+            white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .item .sb{display:block;font-size:var(--fs-micro);color:var(--dim);
+            white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:1px}
+  /* flex-shrink:0 senão o selo de estado é espremido até virar "ar". */
+  .item .tag{flex:0 0 auto;font-size:var(--fs-micro);color:var(--dim);white-space:nowrap}
+
+  /* ---- cabeçalho do alvo --------------------------------------------- */
+  .head{padding:18px 24px 0;flex:0 0 auto}
+  .head-row{display:flex;align-items:flex-start;gap:14px;flex-wrap:wrap}
+  .head-id{min-width:0;flex:1}
+  .head-name{display:flex;align-items:center;gap:10px}
+  .head-name h1{margin:0;font-size:var(--fs-xl);font-weight:700;letter-spacing:-.02em;line-height:1.1}
+  .head-sub{color:var(--dim);font-size:var(--fs-micro);margin-top:5px}
+  .head-acts{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .head-meta{color:var(--dim);font-size:var(--fs-micro);text-align:right;margin-top:7px}
+
+  /* flex:0 0 auto senão o botão ao lado espreme "ligado" até virar "lig". */
+  .state{flex:0 0 auto;white-space:nowrap;font-size:var(--fs-micro);
+         font-weight:700;letter-spacing:.02em}
+  .state.no-ar{color:var(--green)}
+  .state.parcial{color:var(--amber)}
+  .state.parado,.state.ausente{color:var(--dim)}
+
+  /* ---- faixa de recursos --------------------------------------------- */
+  .strip{margin:16px 24px 0;background:var(--card);border:1px solid var(--line);
+         border-radius:var(--r);padding:12px 16px;display:flex;gap:28px;
+         flex-wrap:wrap;align-items:center}
+  .strip .f{min-width:0}
+  .strip .k{font-size:var(--fs-micro);color:var(--dim)}
+  .strip .v{font-size:var(--fs-base);font-weight:600;margin-top:2px;
+            font-variant-numeric:tabular-nums}
+  .strip .sp{flex:1}
+
+  /* ---- abas ----------------------------------------------------------- */
+  .tabs{display:flex;gap:6px;flex-wrap:wrap;padding:16px 24px 0}
+  .tabs button{background:transparent;border-color:transparent;color:var(--dim);
+               border-radius:var(--r-sm);font-weight:600}
+  .tabs button:hover{background:#26272c;color:var(--fg)}
+  .tabs button.on{background:var(--blue);border-color:var(--blue);color:var(--on-accent)}
+  .subtabs{display:flex;gap:18px;padding:14px 24px 0;border-bottom:1px solid var(--line-soft);
+           margin:0 0 4px}
+  .subtabs button{background:transparent;border:none;border-radius:0;color:var(--dim);
+                  padding:0 0 9px;border-bottom:2px solid transparent;font-weight:600}
+  .subtabs button:hover{color:var(--fg);background:transparent}
+  .subtabs button.on{color:var(--blue-hi);border-bottom-color:var(--blue)}
+
+  /* ---- cartões --------------------------------------------------------- */
+  .card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);
+        padding:16px;margin-top:16px}
+  .card > h3{margin:0 0 4px;font-size:var(--fs-base);font-weight:700}
+  .card > .card-hint{margin:0 0 13px;font-size:var(--fs-micro);color:var(--dim);line-height:1.6}
+  .cards{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));
+         margin-top:16px}
+  .cards > .card{margin-top:0}
+  .stats{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(178px,1fr))}
+  .stat{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:14px 16px}
+  .stat .k{font-size:var(--fs-micro);color:var(--dim)}
+  .stat .v{font-size:var(--fs-lg);font-weight:700;margin-top:5px;
+           font-variant-numeric:tabular-nums;line-height:1.2}
+  .stat .n{font-size:var(--fs-micro);color:var(--dimmer);margin-top:3px}
+  .bar{height:5px;border-radius:3px;background:#1a1b1f;overflow:hidden;margin-top:9px}
+  .bar > i{display:block;height:100%;background:var(--green);border-radius:3px;
+           transform-origin:left center}
+
+  /* ---- linhas de ação (tarefa, backup, container) --------------------- */
+  .rows{display:flex;flex-direction:column;gap:9px;margin-top:4px}
+  .row{display:flex;align-items:center;gap:14px;background:var(--card);
+       border:1px solid var(--line);border-radius:var(--r);padding:12px 14px}
+  .row.off{opacity:.55}
+  .row .info{min-width:0;flex:1}
+  .row .t{font-weight:600}
+  .row .d{font-size:var(--fs-micro);color:var(--dim);margin-top:2px}
+  .row .m{font-size:var(--fs-micro);color:var(--dimmer);margin-top:3px;
+          font-variant-numeric:tabular-nums}
+  .row .acts{display:flex;gap:7px;flex-wrap:wrap;flex:0 0 auto}
+
+  /* ---- campos em linha -------------------------------------------- */
+  .fields{display:grid;gap:13px;grid-template-columns:repeat(auto-fit,minmax(190px,1fr))}
+  .inline{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end}
+  .inline > *{flex:1;min-width:140px}
+  .inline > .fit{flex:0 0 auto;min-width:0}
+  .check{display:flex;align-items:center;gap:9px;font-size:var(--fs-base)}
+
+  /* ---- console ---------------------------------------------------------- */
+  pre.log{background:#131417;border:1px solid var(--line);border-radius:var(--r);
+      padding:13px 15px;overflow:auto;max-height:52vh;font-size:var(--fs-micro);
+      line-height:1.65;margin:0;white-space:pre-wrap;word-break:break-word;
+      font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:#c9ccd3}
+  .mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+  .tnum{font-variant-numeric:tabular-nums}
+
+  /* ---- selos e avisos --------------------------------------------------- */
+  .pill{display:inline-flex;align-items:center;gap:6px;padding:2px 9px;
+        border-radius:999px;font-size:var(--fs-micro);font-weight:700;letter-spacing:.02em}
+  .pill.ok{background:rgba(61,171,98,.14);color:var(--ok-ink)}
+  .pill.bad{background:rgba(229,72,77,.14);color:var(--bad-ink)}
+  .pill.warn{background:rgba(224,162,60,.14);color:var(--amber)}
+  .pill.flat{background:var(--ctrl);color:var(--dim)}
+  .flash{padding:11px 14px;border-radius:var(--r);margin:16px 24px 0;font-size:var(--fs-base)}
+  .flash.ok{background:rgba(61,171,98,.1);border:1px solid rgba(61,171,98,.35)}
+  .flash.err{background:rgba(229,72,77,.1);border:1px solid rgba(229,72,77,.35)}
+  /* Aviso com borda fina em volta e fundo tingido, como os banners da
+     referência. Barra colorida de um lado só é o tell clássico de UI gerada
+     por IA — e o detector pega. */
+  .note{border:1px solid var(--red-dim);background:rgba(229,72,77,.08);
+        padding:10px 13px;border-radius:var(--r-sm);font-size:var(--fs-micro);
+        color:var(--danger-ink);line-height:1.6}
+  .note.calm{border-color:var(--blue-dim);background:rgba(47,127,239,.08);color:var(--calm-ink)}
+  .dim{color:var(--dim)}
+  .hint{font-size:var(--fs-micro);color:var(--dim);line-height:1.65;margin:9px 0 0}
+  .empty{padding:26px 16px;text-align:center;color:var(--dim);font-size:var(--fs-micro);
+         border:1px dashed var(--line);border-radius:var(--r);line-height:1.7}
+
+  table{width:100%;border-collapse:collapse}
+  th,td{text-align:left;padding:9px 11px;border-bottom:1px solid var(--line-soft)}
+  th{color:var(--dim);font-size:var(--fs-micro);font-weight:700;letter-spacing:.03em}
+  td{font-size:var(--fs-base)}
+  tr:last-child td{border-bottom:none}
+
+  .spin{display:none;color:var(--dim);font-size:var(--fs-micro)}
+  .htmx-request .spin{display:inline}
+  .htmx-request.card,.htmx-request .loading-dim{opacity:.6}
+
+  @media (max-width:880px){
+    body{overflow:auto}
+    .shell{grid-template-columns:1fr;height:auto}
+    .side{border-right:none;border-bottom:1px solid var(--line)}
+    .side-list{max-height:230px}
+    .main-scroll{overflow:visible;padding:0 16px 24px}
+    .head,.strip,.tabs,.subtabs,.flash{padding-left:16px;padding-right:16px}
+    .strip,.flash{margin-left:16px;margin-right:16px}
+    /* No celular o cabeçalho empilha: nome em cima, botões largos embaixo.
+       Lado a lado em 375px, o nome espremia o estado e o botão. */
+    .head-row{flex-direction:column;gap:12px}
+    .head-row > div{width:100%}
+    .head-acts button,.head-acts .btn{flex:1;justify-content:center}
+    .head-meta{text-align:left;margin-top:9px}
+    .strip{gap:16px 22px}
+  }
+</style>
+</head>
+<body {% block bodyattrs %}{% endblock %}>
+<!--
+THESIS: Um console doméstico onde brincadeira e produção moram na mesma máquina
+e nunca se confundem; recusa o dashboard de métricas que trata todo container
+como igual.
+OWN-WORLD: Chrome escuro de aplicativo em três profundidades (moldura, cartão,
+controle), lateral fixa de 272px com lista de alvos, abas primárias em pílula
+azul e sub-abas sublinhadas, linhas de ação com os botões à direita. Cor só
+carrega consequência: azul age, verde liga, vermelho desliga, âmbar transiciona.
+STORY: Ele abre, vê num olhar o que está no ar, aperta um botão e sai — ou
+desce para console, mundos, backups e o sono da própria máquina.
+FIRST VIEWPORT: Lateral à esquerda com Minecraft, igenda, Supabase e Servidor,
+cada um com ponto de estado. À direita, nome grande, estado, Ligar/Reiniciar/
+Desligar no alto à direita, faixa de recursos abaixo, abas e conteúdo.
+FORM: Padrão da categoria escolhido pelo usuário (porta de saída do sorteio),
+régua MC Server Manager, executado em fidelidade total. Seed dff7f400.
+FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, and DESIGN.md
+-->
+{% block body %}{% endblock %}
+</body>
+</html>

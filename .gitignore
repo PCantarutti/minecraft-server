@@ -1,0 +1,11 @@
+# Config real do servidor (IPs da tailnet, nicks). O exemplo versiona.
+.env
+
+# Backups do mundo: dezenas de MB, não é código.
+backups/
+
+# Estado de ferramenta local (pids, portas, cache). Não reproduzível.
+.impeccable/
+
+__pycache__/
+*.pyc

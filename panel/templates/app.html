@@ -1,0 +1,70 @@
+{% extends "layout.html" %}
+{% block bodyattrs %}hx-headers='{"X-CSRF": "{{ csrf }}"}'{% endblock %}
+{% block body %}
+<div class="shell">
+
+  <aside class="side">
+    <div class="side-top">
+      <div class="side-brand"><span class="mark">S</span> Painel do Servidor</div>
+    </div>
+
+    <div class="side-head">
+      <h2>Serviços <span class="count">{{ alvos | length }}</span></h2>
+      <div class="acts">
+      <button class="b-sm" hx-post="/a/tudo/start" hx-target="#flash" hx-swap="innerHTML"
+              hx-disabled-elt="this"
+              hx-confirm="Ligar tudo? Sobe Supabase, depois igenda, depois Minecraft.">Ligar tudo</button>
+      <button class="b-sm b-stop" hx-post="/a/tudo/stop" hx-target="#flash" hx-swap="innerHTML"
+              hx-disabled-elt="this"
+              hx-prompt="Isto derruba o igenda e o Supabase de PRODUÇÃO junto com o Minecraft. Digite DESLIGAR TUDO para confirmar.">Desligar tudo</button>
+      </div>
+    </div>
+
+    <div class="side-search">
+      <input id="busca" type="search" placeholder="Buscar serviço…" autocomplete="off"
+             oninput="filtrarLateral(this.value)">
+    </div>
+
+    {# O alvo NÃO pode ser fixado no carregamento: a lateral se recarrega
+       sozinha e voltaria a destacar o alvo inicial toda vez. Lê do cabeçalho,
+       que é reescrito a cada troca de tela e é a fonte da verdade. #}
+    <div class="side-list" id="lateral"
+         hx-get="/f/lateral"
+         hx-vals='js:{alvo: document.getElementById("cabecalho")?.dataset.alvo || "minecraft"}'
+         hx-trigger="every 6s, panel-refresh from:body"
+         hx-swap="innerHTML">{% include "_lateral.html" %}</div>
+
+    <div class="side-foot">
+      <a class="btn b-ghost" href="/" title="Recarregar o painel">Recarregar painel</a>
+      <form method="post" action="/logout">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <button type="submit" style="width:100%;justify-content:center">Sair</button>
+      </form>
+    </div>
+  </aside>
+
+  <section class="main">
+    <div id="flash"></div>
+    <div id="alvo" style="display:flex;flex-direction:column;min-height:0;flex:1">
+      {% include "_alvo.html" %}
+    </div>
+  </section>
+</div>
+
+<script>
+  // Busca na lateral: esconde itens que não casam. Sem framework, sem rede.
+  function filtrarLateral(q){
+    q = (q || '').trim().toLowerCase();
+    document.querySelectorAll('#lateral .item').forEach(function(el){
+      el.style.display = !q || (el.dataset.busca || '').includes(q) ? '' : 'none';
+    });
+  }
+  // O polling da lateral reescreve a lista; reaplica o filtro depois do swap.
+  document.body.addEventListener('htmx:afterSwap', function(e){
+    if (e.target && e.target.id === 'lateral') {
+      var b = document.getElementById('busca');
+      if (b && b.value) filtrarLateral(b.value);
+    }
+  });
+</script>
+{% endblock %}

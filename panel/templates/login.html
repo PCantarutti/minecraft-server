@@ -1,0 +1,23 @@
+{% extends "layout.html" %}
+{% block title %}Entrar — Painel do Servidor{% endblock %}
+{% block body %}
+<div style="height:100vh;display:grid;place-items:center;padding:24px;overflow:auto">
+  <div style="width:100%;max-width:360px">
+    <div class="side-brand" style="justify-content:center;margin-bottom:18px;font-size:var(--fs-lg)">
+      <span class="mark">S</span> Painel do Servidor
+    </div>
+    <div class="card" style="margin-top:0">
+      {% if error %}<div class="flash err" style="margin:0 0 13px">{{ error }}</div>{% endif %}
+      <form method="post">
+        <label for="password">Senha</label>
+        <input id="password" type="password" name="password" autofocus autocomplete="current-password">
+        <div style="margin-top:15px">
+          <button class="b-primary" type="submit" style="width:100%;justify-content:center">Entrar</button>
+        </div>
+      </form>
+      <p class="hint">Primeira vez? A senha inicial saiu uma única vez no log do container:
+        <span class="mono">docker compose -f painel-compose.yml logs painel | grep senha</span></p>
+    </div>
+  </div>
+</div>
+{% endblock %}

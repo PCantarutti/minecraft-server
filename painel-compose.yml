@@ -1,0 +1,68 @@
+# ==============================================================================
+# Painel do servidor — projeto Docker PRÓPRIO.
+#
+#   docker compose -f painel-compose.yml up -d --build
+#
+# Ele não pertence ao Minecraft: controla as três pilhas da máquina e a própria
+# máquina. Ficar dentro do projeto `minecraft` era errado em dois sentidos — no
+# nome (`minecraft-panel`) e no efeito: tirar o projeto do boot levaria o painel
+# junto, e a máquina acordaria sem nada que religasse o resto pela web.
+#
+# Os volumes são declarados EXTERNOS com o nome antigo. Volume nomeado é
+# escopado por projeto: sem isto, mudar de projeto criaria volumes novos e
+# vazios, e o painel perderia senha, agendamento e configuração de backup.
+# ==============================================================================
+
+name: painel
+
+services:
+  painel:
+    build: ./panel
+    container_name: painel
+    restart: unless-stopped
+    environment:
+      TZ: America/Sao_Paulo
+      MC_CONTAINER: minecraft
+      MC_SERVICE: mc
+      RCON_HOST: minecraft
+      PANEL_CONTAINER: painel
+      # Upload de mundo passa de 1 GB e é bufferizado em arquivo temporário.
+      # No volume, onde há disco — não na camada do container, onde não há.
+      TMPDIR: /mcdata/.tmp
+    ports:
+      # Mesma regra da porta do jogo: só na tailnet. Este painel tem o socket
+      # do Docker montado e alcança o host — exposto na internet seria root na
+      # máquina inteira.
+      - "${PANEL_BIND:-127.0.0.1}:${PANEL_PORT:-8080}:8080"
+    volumes:
+      # Ciclo de vida dos containers + `compose up -d mc` para aplicar config.
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Mundos, server.properties (de onde sai a senha do RCON), plugins.
+      - mc_data:/mcdata
+      # O projeto do Minecraft: o painel edita o .env e chama o compose dele.
+      - .:/project
+      - panel_data:/paneldata
+      - ${BACKUP_DIR:-./backups}:/backups
+    networks: [mc]
+    deploy:
+      resources:
+        limits:
+          memory: ${PANEL_MEM_LIMIT:-512M}
+          cpus: "${PANEL_CPUS:-1.0}"
+    cpu_shares: 256
+    # Menos sacrificável que o Minecraft, mais que a stack igenda: se o painel
+    # morrer junto, não há como religar nada pela web.
+    oom_score_adj: 500
+
+volumes:
+  mc_data:
+    external: true
+    name: minecraft_mc_data
+  panel_data:
+    external: true
+    name: minecraft_panel_data
+
+networks:
+  mc:
+    external: true
+    name: minecraft_mc

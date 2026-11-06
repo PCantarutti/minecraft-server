@@ -1,0 +1,17 @@
+<pre class="log" id="log">{{ log }}</pre>
+{% if ocultas %}
+<p class="hint" style="margin-top:7px">{{ ocultas }} linha(s) de conexão do RCON
+  escondidas — são do próprio painel consultando o servidor, não do jogo.</p>
+{% endif %}
+<script>
+  // Mantém colado no fim como um terminal, mas só se o usuário já estava no fim —
+  // senão puxaria a leitura de quem subiu para investigar alguma coisa.
+  (function () {
+    var el = document.getElementById('log');
+    if (!el) return;
+    if (el.dataset.pinned !== 'no') el.scrollTop = el.scrollHeight;
+    el.addEventListener('scroll', function () {
+      el.dataset.pinned = (el.scrollHeight - el.scrollTop - el.clientHeight < 40) ? 'yes' : 'no';
+    });
+  })();
+</script>

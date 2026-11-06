@@ -1,0 +1,94 @@
+<div class="cards">
+  <div class="card">
+    <h3>Online agora</h3>
+    <p class="card-hint">Atualiza sozinho a cada 8 segundos — entrar no jogo
+      aparece aqui sem recarregar a página.</p>
+    {% include "_online.html" %}
+  </div>
+
+  <div class="card">
+    <h3>Whitelist</h3>
+    <p class="card-hint">Na tailnet é camada extra: só quem está na rede alcança
+      o servidor. Vira obrigatória se o endereço um dia for público.</p>
+    <p style="margin:0 0 11px">
+      {% if wl_on %}<span class="pill ok">ligada</span>{% else %}<span class="pill flat">desligada</span>{% endif %}
+    </p>
+    <div style="display:flex;gap:9px;flex-wrap:wrap">
+      <form hx-post="/a/player" hx-target="#flash" hx-swap="innerHTML">
+        <input type="hidden" name="action" value="whitelist_on">
+        <button class="b-sm" type="submit" hx-disabled-elt="this" {% if wl_on %}disabled{% endif %}>Ligar</button>
+      </form>
+      <form hx-post="/a/player" hx-target="#flash" hx-swap="innerHTML">
+        <input type="hidden" name="action" value="whitelist_off">
+        <button class="b-sm" type="submit" hx-disabled-elt="this" {% if not wl_on %}disabled{% endif %}>Desligar</button>
+      </form>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <h3>Ações por jogador</h3>
+  <p class="card-hint">Tudo passa por RCON, então exige o servidor ligado.</p>
+  <form hx-post="/a/player" hx-target="#flash" hx-swap="innerHTML">
+    <div class="inline">
+      <div><label for="player">Nick</label>
+        <input id="player" name="player" placeholder="Steve" autocomplete="off"></div>
+      <div><label for="action">Ação</label>
+        <select id="action" name="action">
+          <option value="op">Dar OP (admin)</option>
+          <option value="deop">Tirar OP</option>
+          <option value="whitelist_add">Adicionar à whitelist</option>
+          <option value="whitelist_remove">Remover da whitelist</option>
+          <option value="kick">Expulsar</option>
+          <option value="ban">Banir</option>
+          <option value="pardon">Desbanir</option>
+        </select></div>
+      <div class="fit"><button class="b-primary" type="submit" hx-disabled-elt="this">Aplicar</button></div>
+    </div>
+  </form>
+</div>
+
+<div class="cards">
+  <div class="card">
+    <h3>Operadores</h3>
+    <div class="rows">
+      {% for p in ops %}
+      <div class="row" style="padding:7px 11px;gap:10px">
+        <img src="https://mc-heads.net/avatar/{{ p.name|urlencode }}/24" width="24" height="24"
+             alt="" loading="lazy" referrerpolicy="no-referrer"
+             style="border-radius:var(--r-sm);image-rendering:pixelated;flex:0 0 auto;background:var(--ctrl)"
+             onerror="this.style.visibility='hidden'">
+        <div class="info"><div class="t">{{ p.name }}</div></div>
+        {% if p.level %}<span class="pill flat">nível {{ p.level }}</span>{% endif %}
+      </div>
+      {% else %}<div class="empty">Nenhum operador.</div>{% endfor %}
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Whitelist e banidos</h3>
+    <div class="rows">
+      {% for p in whitelist %}
+      <div class="row" style="padding:7px 11px;gap:10px">
+        <img src="https://mc-heads.net/avatar/{{ p.name|urlencode }}/24" width="24" height="24"
+             alt="" loading="lazy" referrerpolicy="no-referrer"
+             style="border-radius:var(--r-sm);image-rendering:pixelated;flex:0 0 auto;background:var(--ctrl)"
+             onerror="this.style.visibility='hidden'">
+        <div class="info"><div class="t">{{ p.name }}</div></div>
+        <span class="pill flat">liberado</span>
+      </div>
+      {% endfor %}
+      {% for p in banned %}
+      <div class="row" style="padding:7px 11px;gap:10px">
+        <div class="info"><div class="t">{{ p.name }}</div></div>
+        <span class="pill bad">banido</span>
+      </div>
+      {% endfor %}
+      {% if not whitelist and not banned %}
+      <div class="empty">Whitelist vazia e ninguém banido.</div>
+      {% endif %}
+    </div>
+    <p class="hint">Os rostos vêm do mc-heads.net e são buscados pelo seu
+      navegador — o nick sai daqui para esse serviço, o servidor não participa.</p>
+  </div>
+</div>

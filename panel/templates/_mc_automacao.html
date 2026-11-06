@@ -1,0 +1,181 @@
+<div id="job-slot" hx-get="/f/job" hx-trigger="load, panel-refresh from:body" hx-swap="innerHTML"></div>
+
+<div class="cards">
+  <div class="card">
+    <h3>Ligar e desligar sozinho</h3>
+    <p class="card-hint">Duas coisas no mesmo lugar: o horário em que o servidor
+      de Minecraft liga e desliga, e se ele sobe junto com a máquina.</p>
+
+    <form hx-post="/a/schedule" hx-target="#flash" hx-swap="innerHTML">
+      <div class="check" style="margin-bottom:13px">
+        <input type="checkbox" id="sch-on" name="enabled" {% if sch.enabled %}checked{% endif %}>
+        <label for="sch-on" style="margin:0;color:var(--fg);font-size:var(--fs-base)">Agendamento por horário ativo</label>
+      </div>
+      <div class="fields">
+        <div><label for="sa">Ligar às</label>
+          <input id="sa" type="time" name="start_at" value="{{ sch.start_at }}"></div>
+        <div><label for="so">Desligar às</label>
+          <input id="so" type="time" name="stop_at" value="{{ sch.stop_at }}"></div>
+        <div><label for="sr">Reiniciar às</label>
+          <input id="sr" type="time" name="restart_at" value="{{ sch.restart_at }}"></div>
+      </div>
+      <div style="margin-top:13px">
+        <label>Dias da semana</label>
+        <div style="display:flex;gap:13px;flex-wrap:wrap">
+          {% for i, d in [(0,'Seg'),(1,'Ter'),(2,'Qua'),(3,'Qui'),(4,'Sex'),(5,'Sáb'),(6,'Dom')] %}
+          <span class="check"><input type="checkbox" id="d{{ i }}" name="days" value="{{ i }}"
+            {% if i in sch.days %}checked{% endif %}>
+            <label for="d{{ i }}" style="margin:0;color:var(--fg);font-size:var(--fs-base)">{{ d }}</label></span>
+          {% endfor %}
+        </div>
+      </div>
+      <div style="margin-top:15px">
+        <button class="b-primary" type="submit" hx-disabled-elt="this">Salvar agendamento</button>
+      </div>
+    </form>
+    <p class="hint">Campo de horário vazio = aquela ação não acontece. Antes de
+      desligar ou reiniciar, o painel avisa quem está jogando e espera 30
+      segundos. Fuso: America/Sao_Paulo.</p>
+
+    <hr style="border:none;border-top:1px solid var(--line-soft);margin:18px 0 15px">
+
+    <p style="margin:0 0 4px;font-weight:600">Quando a máquina ligar</p>
+    <p class="card-hint">A máquina acorda às 07:00 todo dia. Desligue isto se não
+      quer o Minecraft consumindo RAM e CPU até você entrar para jogar.</p>
+    <p style="margin:0 0 11px">
+      {% if auto.ligado %}<span class="pill ok">sobe sozinho no boot</span>
+      {% else %}<span class="pill flat">só sobe quando você mandar</span>{% endif %}
+    </p>
+    <div style="display:flex;gap:9px;flex-wrap:wrap">
+      <form hx-post="/a/autostart/minecraft" hx-target="#flash" hx-swap="innerHTML">
+        <input type="hidden" name="ligado" value="1">
+        <button class="b-go" type="submit" hx-disabled-elt="this"
+                {% if auto.ligado %}disabled{% endif %}>Subir no boot</button>
+      </form>
+      <form hx-post="/a/autostart/minecraft" hx-target="#flash" hx-swap="innerHTML"
+            hx-confirm="Depois do próximo boot, o Minecraft só sobe quando você mandar aqui. Confirma?">
+        <input type="hidden" name="ligado" value="0">
+        <button class="b-stop" type="submit" hx-disabled-elt="this"
+                {% if not auto.ligado %}disabled{% endif %}>Não subir no boot</button>
+      </form>
+    </div>
+    <p class="hint">O container do painel fica de fora desta escolha, de
+      propósito: ele precisa subir sempre, senão a máquina acordaria sem nada
+      para religar o resto pela web.</p>
+  </div>
+
+  <div class="card">
+    <h3>Backup automático</h3>
+    <p class="card-hint">Congela o save, arquiva e libera de novo — sem isso o
+      arquivo sai no meio de uma escrita e volta corrompido.</p>
+    <form hx-post="/a/backup/config" hx-target="#flash" hx-swap="innerHTML">
+      <div class="check" style="margin-bottom:13px">
+        <input type="checkbox" id="bk-on" name="enabled" {% if cfg.enabled %}checked{% endif %}>
+        <label for="bk-on" style="margin:0;color:var(--fg);font-size:var(--fs-base)">Backup diário ativo</label>
+      </div>
+      <div class="fields">
+        <div><label for="bat">Horário</label>
+          <input id="bat" type="time" name="at" value="{{ cfg.at }}"></div>
+        <div><label for="keep">Cópias a manter</label>
+          <input id="keep" type="number" name="keep" min="1" max="365" value="{{ cfg.keep }}"></div>
+        <div><label for="remote">Destino remoto</label>
+          <input id="remote" name="remote" value="{{ cfg.remote }}" placeholder="gdrive:minecraft"></div>
+      </div>
+      <div style="margin-top:15px">
+        <button class="b-primary" type="submit" hx-disabled-elt="this">Salvar</button>
+      </div>
+    </form>
+    <p class="hint">
+      {% if rclone_ok %}<span class="pill ok">rclone.conf instalado</span>
+      {% else %}<span class="pill flat">sem rclone.conf</span> — o backup fica só no servidor.{% endif %}
+    </p>
+
+    <hr style="border:none;border-top:1px solid var(--line-soft);margin:18px 0 15px">
+
+    <p style="margin:0 0 4px;font-weight:600">Google Drive</p>
+    <p class="card-hint">O login do Google abre navegador e não roda dentro do
+      container. No seu PC: <span class="mono">rclone config</span>, crie um
+      remote do tipo <span class="mono">drive</span>, e envie o arquivo aqui.</p>
+    <form hx-post="/a/rclone" hx-target="#flash" hx-swap="innerHTML"
+          hx-encoding="multipart/form-data">
+      <div class="inline">
+        <div><input type="file" name="file" accept=".conf,.txt"></div>
+        <div class="fit"><button type="submit" hx-disabled-elt="this">Enviar conf</button></div>
+      </div>
+    </form>
+    <form hx-post="/a/rclone/test" hx-target="#flash" hx-swap="innerHTML" style="margin-top:9px">
+      <div class="inline">
+        <div><input name="remote" value="{{ cfg.remote }}" placeholder="gdrive:minecraft"></div>
+        <div class="fit"><button type="submit" hx-disabled-elt="this">Testar destino</button></div>
+      </div>
+    </form>
+  </div>
+</div>
+
+<form id="form-backups" hx-post="/a/backup/delete" hx-target="#flash" hx-swap="innerHTML"
+      hx-confirm="Apagar os backups marcados? Não tem desfazer.">
+<div class="card">
+  <h3>Backups no servidor</h3>
+  <p class="card-hint">Marque para baixar ou apagar vários de uma vez. Restaurar
+    para o servidor, apaga o <span class="mono">/data</span> atual e extrai — o
+    estado de agora vira um <span class="mono">pre-restore</span> antes.</p>
+
+  <div style="display:flex;gap:9px;flex-wrap:wrap;align-items:center;margin-bottom:14px">
+    <button class="b-go" type="button" hx-post="/a/backup/run" hx-target="#flash"
+            hx-swap="innerHTML" hx-disabled-elt="this">Fazer backup agora</button>
+    <span style="flex:1"></span>
+    <span class="check" style="margin-right:4px">
+      <input type="checkbox" id="bk-todos" onchange="marcarTodos(this.checked)">
+      <label for="bk-todos" style="margin:0;color:var(--dim);font-size:var(--fs-micro)">todos</label>
+    </span>
+    <button class="b-sm" type="button" onclick="baixarSelecionados()">Baixar selecionados</button>
+    <button class="b-sm b-stop" type="submit" hx-disabled-elt="this">Apagar selecionados</button>
+  </div>
+
+  <div class="rows">
+    {% for b in backups %}
+    <div class="row">
+      <span class="check" style="flex:0 0 auto">
+        <input type="checkbox" class="bk-sel" name="name" value="{{ b.name }}"
+               data-url="/a/backup/download?name={{ b.name|urlencode }}"
+               aria-label="Selecionar {{ b.name }}">
+      </span>
+      <div class="info">
+        <div class="t mono" style="font-size:var(--fs-micro)">{{ b.name }}</div>
+        <div class="m">{{ b.at }} · {{ b.size }}</div>
+      </div>
+      <div class="acts">
+        <a class="btn b-sm" href="/a/backup/download?name={{ b.name|urlencode }}"
+           download="{{ b.name }}">Baixar</a>
+        <form hx-post="/a/backup/restore" hx-target="#flash" hx-swap="innerHTML"
+              hx-confirm="Restaurar {{ b.name }}? O servidor para, o /data atual é apagado e substituído.">
+          <input type="hidden" name="name" value="{{ b.name }}">
+          <button class="b-sm" type="submit" hx-disabled-elt="this">Restaurar</button>
+        </form>
+      </div>
+    </div>
+    {% else %}
+    <div class="empty">Nenhum backup ainda.<br>O botão acima faz o primeiro.</div>
+    {% endfor %}
+  </div>
+</div>
+</form>
+
+<script>
+  function marcarTodos(v){
+    document.querySelectorAll('.bk-sel').forEach(function(c){ c.checked = v; });
+  }
+  // Em sequência, com folga: disparar cinco downloads ao mesmo tempo faz o
+  // navegador cancelar os últimos, e cada arquivo aqui tem gigabytes.
+  function baixarSelecionados(){
+    var sel = [].slice.call(document.querySelectorAll('.bk-sel:checked'));
+    if (!sel.length) { alert('Marque ao menos um backup.'); return; }
+    sel.forEach(function(c, i){
+      setTimeout(function(){
+        var a = document.createElement('a');
+        a.href = c.dataset.url; a.download = c.value;
+        document.body.appendChild(a); a.click(); a.remove();
+      }, i * 1500);
+    });
+  }
+</script>

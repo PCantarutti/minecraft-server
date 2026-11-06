@@ -1,0 +1,46 @@
+<div hx-get="/f/aba/servidor/visao" hx-trigger="every 15s, panel-refresh from:body" hx-swap="outerHTML">
+<div class="stats" style="margin-top:16px">
+  <div class="stat"><div class="k">Máquina</div>
+    <div class="v mono" style="font-size:var(--fs-base)">{{ info.host }}</div>
+    <div class="n">no ar há {{ info.uptime }}</div></div>
+  <div class="stat"><div class="k">Memória</div><div class="v">{{ info.mem }}</div>
+    <div class="n">o que sobra vira cache do Postgres</div></div>
+  <div class="stat"><div class="k">Disco</div><div class="v">{{ info.disco }}</div>
+    <div class="n">mundos e backups moram aqui</div></div>
+  <div class="stat"><div class="k">Carga</div><div class="v tnum">{{ info.carga }}</div>
+    <div class="n">1, 5 e 15 minutos · 4 núcleos</div></div>
+</div>
+
+<div class="card">
+  <h3>O que está rodando nesta máquina</h3>
+  <p class="card-hint">Mesma caixa, três pilhas. Clique para abrir qualquer uma.</p>
+  <div class="rows">
+    {% for chave, spec, est in alvos %}
+    <div class="row">
+      <div class="info">
+        <div class="t">{{ spec.label }}
+          {% if est.estado == 'no-ar' %}<span class="pill ok" style="margin-left:7px">no ar</span>
+          {% elif est.estado == 'parcial' %}<span class="pill warn" style="margin-left:7px">{{ est.rotulo }}</span>
+          {% else %}<span class="pill flat" style="margin-left:7px">parado</span>{% endif %}
+        </div>
+        <div class="d">{{ spec.sub }} · {{ est.total }} container(s)</div>
+      </div>
+      <div class="acts">
+        <button class="b-sm" hx-get="/f/alvo/{{ chave }}" hx-target="#alvo" hx-swap="innerHTML">Abrir</button>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+<div class="card">
+  <h3>Como o painel alcança a máquina</h3>
+  <p class="card-hint">Para ler e mexer no agendamento de energia, o painel entra nos
+    namespaces do PID 1 pelo socket do Docker. Sem agente instalado no host,
+    sem regra de sudo.</p>
+  <div class="note">
+    Isso significa que este painel é root nesta máquina. É por isso que ele só escuta
+    no IP da tailnet e exige senha — exposto na internet, seria a máquina inteira.
+  </div>
+</div>
+</div>

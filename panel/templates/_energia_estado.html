@@ -1,0 +1,41 @@
+{# Só o painel de estado se recarrega. Os formulários de horário ficam de fora
+   do polling: recarregar um <input type=time> apaga o que está sendo digitado. #}
+<div id="energia-estado" hx-get="/f/energia/estado" hx-trigger="every 20s, panel-refresh from:body"
+     hx-swap="outerHTML">
+  <div class="stats" style="margin-top:16px">
+    <div class="stat"><div class="k">Agendamento</div>
+      <div class="v">
+        {% if e.ligado and pular == hoje %}<span class="pill warn">pausado hoje</span>
+        {% elif e.ligado and e.ativo %}<span class="pill ok">armado</span>
+        {% elif e.ligado %}<span class="pill warn">pausado</span>
+        {% else %}<span class="pill flat">desligado</span>{% endif %}
+      </div>
+      <div class="n">
+        {% if e.ligado and pular == hoje %}volta ao normal amanhã, sozinho
+        {% elif e.ligado and e.ativo %}a máquina se desliga e acorda sozinha
+        {% elif e.ligado %}habilitado, mas o timer está parado
+        {% else %}a máquina fica ligada 24 h por dia{% endif %}
+      </div>
+    </div>
+
+    <div class="stat"><div class="k">Próximo desligamento</div>
+      <div class="v" style="font-size:var(--fs-base)">
+        {% if e.ativo and pular != hoje %}{{ e.proximo }}{% else %}nenhum{% endif %}</div>
+      <div class="n">horário de São Paulo</div></div>
+
+    <div class="stat"><div class="k">E acorda em seguida</div>
+      <div class="v" style="font-size:var(--fs-base)">
+        {% if e.ativo and pular != hoje %}às {{ e.acorda }}{% else %}—{% endif %}</div>
+      <div class="n">despertador no relógio da placa</div></div>
+  </div>
+
+  {% if pular == hoje %}
+  <div class="card">
+    <h3>Esta noite a máquina fica acordada</h3>
+    <div class="note calm">
+      O timer está parado só por hoje. O painel religa sozinho quando o dia virar
+      — você não precisa lembrar de nada.
+    </div>
+  </div>
+  {% endif %}
+</div>

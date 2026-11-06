@@ -1,0 +1,49 @@
+{# Só-leitura: pode se recarregar inteiro sem apagar nada que o usuário digitou. #}
+<div hx-get="/f/aba/minecraft/visao" hx-trigger="every 10s, panel-refresh from:body" hx-swap="outerHTML">
+<div class="stats" style="margin-top:16px">
+  <div class="stat"><div class="k">Estado</div>
+    <div class="v">
+      {% if cs.status == 'running' %}<span class="pill ok">no ar</span>
+      {% elif cs.status == 'ausente' %}<span class="pill bad">sem container</span>
+      {% else %}<span class="pill flat">{{ cs.status }}</span>{% endif %}
+    </div>
+    <div class="n">{% if cs.health == 'healthy' %}saúde ok{% elif cs.health == 'starting' %}subindo{% elif cs.health == '-' %}—{% else %}{{ cs.health }}{% endif %}</div>
+  </div>
+  <div class="stat"><div class="k">No ar há</div><div class="v">{{ cs.uptime }}</div></div>
+  <div class="stat"><div class="k">Memória</div><div class="v">{{ stats.mem_pct }}</div>
+    <div class="n">{{ stats.mem }}</div></div>
+  <div class="stat"><div class="k">CPU</div><div class="v">{{ stats.cpu }}</div>
+    <div class="n">teto no compose</div></div>
+  <div class="stat"><div class="k">Mundo ativo</div>
+    <div class="v" style="font-size:var(--fs-base)">{{ props.get('level-name', '—') }}</div>
+    <div class="n">{{ worlds | length }} mundo(s) no disco</div></div>
+  <div class="stat"><div class="k">Dificuldade</div>
+    <div class="v" style="font-size:var(--fs-base)">{{ props.get('difficulty', '—') }}</div>
+    <div class="n">{{ props.get('gamemode', '—') }}</div></div>
+</div>
+
+<div class="cards">
+  <div class="card">
+    <h3>Quem está jogando</h3>
+    <p class="card-hint">Lido do servidor por RCON a cada carregamento.</p>
+    <p class="mono" style="margin:0">{{ online }}</p>
+    <p class="hint">Endereço para o cliente: <span class="mono">{{ props.get('server-ip') or '100.95.171.109' }}:{{ props.get('server-port', '25565') }}</span>
+      — só alcançável por quem está na tailnet.</p>
+  </div>
+
+  <div class="card">
+    <h3>Backups recentes</h3>
+    <p class="card-hint">Os três últimos. A lista completa fica em Automação.</p>
+    <div class="rows">
+      {% for b in backups %}
+      <div class="row" style="padding:9px 12px">
+        <div class="info"><div class="t mono" style="font-size:var(--fs-micro)">{{ b.name }}</div>
+          <div class="m">{{ b.at }} · {{ b.size }}</div></div>
+      </div>
+      {% else %}
+      <div class="empty">Nenhum backup ainda.<br>Em Automação você faz o primeiro e liga o diário.</div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+</div>

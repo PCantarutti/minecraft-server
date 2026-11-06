@@ -1,0 +1,92 @@
+<div class="card">
+  <h3>Ícone do servidor</h3>
+  <p class="card-hint">A imagem ao lado do nome na lista de servidores do cliente.
+    Qualquer tamanho serve: o painel recorta no centro e reduz para 64×64, o único
+    formato que o Minecraft aceita.</p>
+  <div class="inline" style="align-items:center">
+    <div class="fit">
+      {% if tem_icone %}
+        <img src="/a/icon/current?v={{ range(100000) | random }}" width="64" height="64"
+             alt="Ícone atual do servidor"
+             style="border:1px solid var(--line);border-radius:var(--r-sm);display:block;
+                    image-rendering:pixelated;background:var(--ctrl)">
+      {% else %}
+        <div style="width:64px;height:64px;border:1px dashed var(--line);border-radius:var(--r-sm);
+                    display:grid;place-items:center;color:var(--dimmer)">—</div>
+      {% endif %}
+    </div>
+    <form hx-post="/a/icon" hx-target="#flash" hx-swap="innerHTML"
+          hx-encoding="multipart/form-data" style="flex:1;display:flex;gap:10px;align-items:flex-end">
+      <div style="flex:1"><label for="icone">PNG, JPG ou WebP</label>
+        <input id="icone" type="file" name="file" accept="image/*"></div>
+      <div class="fit"><button class="b-primary" type="submit" hx-disabled-elt="this">Enviar</button>
+        <span class="spin">processando…</span></div>
+    </form>
+    {% if tem_icone %}
+    <form class="fit" hx-post="/a/icon/delete" hx-target="#flash" hx-swap="innerHTML"
+        hx-confirm="Remover o ícone do servidor?">
+      <button class="b-stop" type="submit">Remover</button>
+    </form>
+    {% endif %}
+  </div>
+  <p class="hint">Só aparece depois de reiniciar o servidor.</p>
+</div>
+
+<div class="card">
+  <h3>Configuração do servidor</h3>
+  <p class="card-hint">Escreve no <span class="mono">.env</span> e recria o container.
+    As opções são validadas no servidor, não só aqui — valor fora da lista é recusado.</p>
+  <form hx-post="/a/config" hx-target="#flash" hx-swap="innerHTML"
+        hx-confirm="Aplicar e recriar o container? O servidor reinicia e quem estiver jogando cai.">
+    <div class="fields">
+      {% for c in campos %}
+      <div>
+        <label for="c-{{ c.key }}">{{ c.spec.label }}</label>
+        {% if c.spec.type in ('select', 'worlds') %}
+          <select id="c-{{ c.key }}" name="{{ c.key }}">
+            {% for o in c.options %}
+              <option value="{{ o }}" {% if o == c.value %}selected{% endif %}>{{ o }}</option>
+            {% endfor %}
+          </select>
+        {% elif c.spec.type == 'number' %}
+          <input id="c-{{ c.key }}" name="{{ c.key }}" type="number"
+                 min="{{ c.spec.min }}" max="{{ c.spec.max }}" value="{{ c.value }}">
+        {% else %}
+          <input id="c-{{ c.key }}" name="{{ c.key }}" value="{{ c.value }}" autocomplete="off">
+        {% endif %}
+        {% if c.spec.help %}<p class="hint" style="margin-top:5px">{{ c.spec.help }}</p>{% endif %}
+      </div>
+      {% endfor %}
+    </div>
+    <div style="margin-top:17px;display:flex;gap:10px;align-items:center">
+      <button class="b-primary" type="submit" hx-disabled-elt="this"
+       >
+        Salvar e aplicar</button>
+      <span class="spin">recriando container…</span>
+    </div>
+  </form>
+  <p class="hint">Os limites de memória, CPU e <span class="mono">oom_score_adj</span> continuam
+    vindo do compose: é o que impede o Minecraft de derrubar o Postgres do igenda.</p>
+</div>
+
+<div class="card">
+  <h3>Trocar senha do painel</h3>
+  <form hx-post="/password" hx-target="#flash" hx-swap="innerHTML">
+    <div class="inline">
+      <div><label for="pw-a">Senha atual</label><input id="pw-a" type="password" name="current"></div>
+      <div><label for="pw-n">Senha nova (mín. 10)</label><input id="pw-n" type="password" name="new"></div>
+      <div class="fit"><button type="submit" hx-disabled-elt="this">Trocar</button></div>
+    </div>
+  </form>
+</div>
+
+<div class="card">
+  <h3>server.properties em vigor</h3>
+  <p class="card-hint">Só leitura: o itzg regenera este arquivo a cada start.</p>
+  <table>
+    {% for k, v in props.items() | sort %}
+    <tr><td class="mono" style="font-size:var(--fs-micro)">{{ k }}</td>
+        <td class="mono dim" style="font-size:var(--fs-micro)">{{ v if 'password' not in k else '••••••••' }}</td></tr>
+    {% endfor %}
+  </table>
+</div>

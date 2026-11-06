@@ -1,0 +1,17 @@
+<div class="card">
+  <h3>Log do container</h3>
+  <p class="card-hint">Últimas 300 linhas. Escolha qual container ler.</p>
+  <div style="display:flex;gap:9px;flex-wrap:wrap;margin-bottom:13px">
+    {% for c in est.containers %}
+    <button class="b-sm {% if c.nome == alvo_log %}b-primary{% endif %}"
+            hx-get="/f/aba/{{ chave }}/console?container={{ c.nome|urlencode }}"
+            hx-target="#conteudo" hx-swap="innerHTML">{{ c.servico }}</button>
+    {% endfor %}
+  </div>
+  {% if log %}
+  <pre class="log" id="plog">{{ log }}</pre>
+  <script>(function(){var e=document.getElementById('plog'); if(e) e.scrollTop=e.scrollHeight;})();</script>
+  {% else %}
+  <div class="empty">Sem log para mostrar.<br>Escolha um container acima, ou ligue a pilha.</div>
+  {% endif %}
+</div>

@@ -1,0 +1,112 @@
+# ==============================================================================
+# Minecraft no MESMO servidor da stack igenda. Projeto docker SEPARADO
+# (name: minecraft) e rede própria: não toca em `edge` nem na do Supabase.
+#
+#   docker compose up -d        (deste diretório)
+#
+# Regra que manda aqui: a stack igenda SEMPRE vence. Limite de memória duro,
+# CPU de baixa prioridade e oom_score_adj alto → se faltar RAM, o kernel mata
+# o Minecraft, nunca o Postgres.
+# ==============================================================================
+
+name: minecraft
+
+services:
+  mc:
+    # A tag de Java precisa acompanhar a versão do Minecraft: 26.1+ exige
+    # Java 25 e recusa subir em Java 21. Com MC_VERSION=LATEST isso pode
+    # desencaixar de novo quando o Mojang pular de JVM — o log diz qual
+    # ("requires running the server with Java NN or above") e a correção é
+    # trocar esta tag. Pinar MC_VERSION evita a surpresa.
+    image: itzg/minecraft-server:${MC_JAVA:-java25}
+    container_name: minecraft
+    restart: unless-stopped
+    environment:
+      EULA: "TRUE"
+      TYPE: PAPER              # 3-5x o tick do vanilla, mesmo gameplay
+      VERSION: ${MC_VERSION:-LATEST}
+      # Heap da JVM. Container tem +1G de folga p/ metaspace/threads/off-heap:
+      # heap no limite do cgroup = OOM kill na primeira GC pesada.
+      MEMORY: ${MC_HEAP:-2G}
+      TZ: America/Sao_Paulo
+      # Aikar flags: GC pausado e previsível, menos lag spike com a stack ao lado
+      USE_AIKAR_FLAGS: "true"
+      MAX_PLAYERS: ${MC_MAX_PLAYERS:-10}
+      # VIEW = quantos chunks o servidor ENVIA pro cliente (visual). Custo em
+      # RAM e rede, cresce ~quadrático. SIMULATION = quantos chunks realmente
+      # TICKAM (mobs, redstone, crescimento). Custo em CPU — é o caro.
+      # Ajuste pelo .env; `tps` no rcon diz se exagerou (abaixo de 19, baixe).
+      VIEW_DISTANCE: "${MC_VIEW_DISTANCE:-10}"
+      SIMULATION_DISTANCE: "${MC_SIMULATION_DISTANCE:-8}"
+      OPS: ${MC_OPS:-}
+      # Editáveis pela aba Configuração do painel. Vazio = default do itzg.
+      # LEVEL é o mundo ativo: trocar aqui é o que a aba Mundos faz.
+      LEVEL: ${MC_LEVEL:-world}
+      DIFFICULTY: ${MC_DIFFICULTY:-normal}
+      MODE: ${MC_GAMEMODE:-survival}
+      MOTD: ${MC_MOTD:-Servidor do Pedro}
+      PVP: ${MC_PVP:-true}
+      ONLINE_MODE: ${MC_ONLINE_MODE:-true}
+      SPAWN_PROTECTION: ${MC_SPAWN_PROTECTION:-0}
+      # ---- Geração do mundo -----------------------------------------------
+      # Só têm efeito quando o mundo é criado. Num mundo que já existe o
+      # servidor ignora: a semente e o tipo já estão gravados no level.dat.
+      SEED: ${MC_SEED:-}
+      LEVEL_TYPE: ${MC_LEVEL_TYPE:-minecraft:normal}
+      GENERATE_STRUCTURES: ${MC_GENERATE_STRUCTURES:-true}
+      MAX_WORLD_SIZE: ${MC_MAX_WORLD_SIZE:-29999984}
+      # ---- Regras do jogo (valem sempre, para o mundo que estiver ativo) ---
+      HARDCORE: ${MC_HARDCORE:-false}
+      FORCE_GAMEMODE: ${MC_FORCE_GAMEMODE:-false}
+      ALLOW_NETHER: ${MC_ALLOW_NETHER:-true}
+      ALLOW_FLIGHT: ${MC_ALLOW_FLIGHT:-false}
+      SPAWN_MONSTERS: ${MC_SPAWN_MONSTERS:-true}
+      SPAWN_ANIMALS: ${MC_SPAWN_ANIMALS:-true}
+      SPAWN_NPCS: ${MC_SPAWN_NPCS:-true}
+      ENABLE_COMMAND_BLOCK: ${MC_COMMAND_BLOCK:-false}
+    # O host usa systemd-resolved: o resolv.conf herdado aponta p/ 127.0.0.53,
+    # que dentro do container é loopback vazio → nada resolve e o download do
+    # Paper morre em DNS timeout. Resolver explícito corta a dependência disso.
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
+    ports:
+      # NÃO comente. MC_BIND é o IP da tailnet do servidor: a porta fica
+      # alcançável só por quem está na tailnet, nunca pela internet.
+      # Default 127.0.0.1 é fallback seguro — se o .env faltar, ninguém entra.
+      - "${MC_BIND:-127.0.0.1}:25565:25565"
+    volumes:
+      - mc_data:/data
+    networks: [mc]
+    deploy:
+      resources:
+        limits:
+          memory: ${MC_MEM_LIMIT:-3G}
+          # ponytail: teto de CPU, não reserva. Sobe se a VM tiver >2 vCPU.
+          cpus: "${MC_CPUS:-1.5}"
+    # Perde a disputa de CPU contra api/web/postgres (default é 1024)
+    cpu_shares: 256
+    # Candidato nº1 do OOM killer. Protege a stack do negócio.
+    oom_score_adj: 800
+    stdin_open: true
+    tty: true
+    healthcheck:
+      test: ["CMD", "mc-health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 180s
+      retries: 3
+
+  # O painel NÃO mora aqui. Ele controla as três pilhas e a própria máquina,
+  # e ficar dentro deste projeto significava que tirar o Minecraft do boot
+  # levaria o painel junto. Fica em painel-compose.yml, projeto `painel`.
+
+volumes:
+  mc_data:
+  # Mantido declarado aqui porque o volume se chama minecraft_panel_data e é
+  # usado pelo projeto `painel` como externo. Remover daqui o renomearia.
+  panel_data:
+
+networks:
+  # Rede isolada. O Minecraft NÃO deve alcançar kong/postgres do igenda.
+  mc:

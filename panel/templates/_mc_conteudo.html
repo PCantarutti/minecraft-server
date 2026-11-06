@@ -1,0 +1,148 @@
+<div class="subtabs" style="padding-left:0;padding-right:0;margin-top:4px">
+  <button class="on" onclick="trocaSub(this,'sec-mundos')">Mundos</button>
+  <button onclick="trocaSub(this,'sec-arquivos')">Arquivos</button>
+</div>
+
+<div id="sec-mundos">
+  <div class="card">
+    <h3>Mundos no servidor</h3>
+    <p class="card-hint">Ativar grava <span class="mono">MC_LEVEL</span> e recria o container.
+      O mundo anterior continua no disco.</p>
+    <div class="rows">
+      {% for w in worlds %}
+      <div class="row">
+        <div class="info">
+          <div class="t mono">{{ w.name }}
+            {% if w.active %}<span class="pill ok" style="margin-left:7px">ativo</span>{% endif %}</div>
+          <div class="m">{{ w.size }}</div>
+        </div>
+        <div class="acts">
+          <a class="btn b-sm" href="/a/world/download?name={{ w.name|urlencode }}">Baixar</a>
+          {% if not w.active %}
+          <form hx-post="/a/world/activate" hx-target="#flash" hx-swap="innerHTML"
+        hx-confirm="Ativar '{{ w.name }}'? O container é recriado e quem estiver jogando cai.">
+            <input type="hidden" name="name" value="{{ w.name }}">
+            <button class="b-sm b-primary" type="submit" hx-disabled-elt="this"
+             >Ativar</button>
+          </form>
+          <form hx-post="/a/world/delete" hx-target="#flash" hx-swap="innerHTML"
+        hx-confirm="Apagar o mundo '{{ w.name }}' de vez? Não tem desfazer.">
+            <input type="hidden" name="name" value="{{ w.name }}">
+            <button class="b-sm b-stop" type="submit" hx-disabled-elt="this"
+             >Apagar</button>
+          </form>
+          {% endif %}
+        </div>
+      </div>
+      {% else %}
+      <div class="empty">Nenhum mundo encontrado.</div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Criar um mundo novo</h3>
+    <p class="card-hint">Quem gera é o servidor, no próximo boot — igual ao jogo.
+      Os campos de geração só valem agora: num mundo que já existe, semente e tipo
+      ficam gravados no <span class="mono">level.dat</span> e não mudam mais.</p>
+  
+    <form hx-post="/a/world/create" hx-target="#flash" hx-swap="innerHTML"
+          hx-confirm="Criar o mundo e trocar para ele? O container é recriado, quem estiver jogando cai, e o mundo atual continua no disco.">
+      <div class="fields">
+        <div>
+          <label for="w-nome">Nome do mundo</label>
+          <input id="w-nome" name="nome" placeholder="Ex.: Mundo Novo" autocomplete="off" required>
+          <p class="hint" style="margin-top:5px">Vira o nome da pasta em /data.</p>
+        </div>
+        {% for c in criar if c.spec.grupo == 'geracao' %}
+        <div>
+          <label for="w-{{ c.key }}">{{ c.spec.label }}</label>
+          {% if c.spec.type == 'select' %}
+            <select id="w-{{ c.key }}" name="{{ c.key }}">
+              {% for o in c.spec.options %}
+              <option value="{{ o }}" {% if o == c.value %}selected{% endif %}>{{ o }}</option>
+              {% endfor %}
+            </select>
+          {% elif c.spec.type == 'number' %}
+            <input id="w-{{ c.key }}" name="{{ c.key }}" type="number"
+                   min="{{ c.spec.min }}" max="{{ c.spec.max }}"
+                   value="{{ c.value or c.spec.max }}">
+          {% else %}
+            <input id="w-{{ c.key }}" name="{{ c.key }}" value="" autocomplete="off"
+                   placeholder="deixe vazio para aleatória">
+          {% endif %}
+          {% if c.spec.help %}<p class="hint" style="margin-top:5px">{{ c.spec.help }}</p>{% endif %}
+        </div>
+        {% endfor %}
+      </div>
+  
+      <hr style="border:none;border-top:1px solid var(--line-soft);margin:18px 0 15px">
+      <p style="margin:0 0 4px;font-weight:600">Regras do jogo</p>
+      <p class="card-hint">Estas valem para o servidor como um todo, não só para o
+        mundo novo — o <span class="mono">server.properties</span> é único. Dá
+        para mudar depois em Configurações.</p>
+  
+      <div class="fields">
+        {% for c in criar if c.spec.grupo == 'regras' %}
+        <div>
+          <label for="w-{{ c.key }}">{{ c.spec.label }}</label>
+          {% if c.spec.type == 'select' %}
+            <select id="w-{{ c.key }}" name="{{ c.key }}">
+              {% for o in c.spec.options %}
+              <option value="{{ o }}" {% if o == c.value %}selected{% endif %}>{{ o }}</option>
+              {% endfor %}
+            </select>
+          {% else %}
+            <input id="w-{{ c.key }}" name="{{ c.key }}" type="number"
+                   min="{{ c.spec.min }}" max="{{ c.spec.max }}" value="{{ c.value or 0 }}">
+          {% endif %}
+          {% if c.spec.help %}<p class="hint" style="margin-top:5px">{{ c.spec.help }}</p>{% endif %}
+        </div>
+        {% endfor %}
+      </div>
+  
+      <div style="margin-top:17px;display:flex;gap:10px;align-items:center">
+        <button class="b-primary" type="submit" hx-disabled-elt="this">Criar e ativar</button>
+        <span class="spin">recriando container…</span>
+      </div>
+    </form>
+  
+    <p class="hint">Hardcore força a dificuldade para <span class="mono">hard</span>;
+      o painel já ajusta em vez de deixar você descobrir dentro do jogo. Mundo
+      <span class="mono">amplified</span> demora bem mais para gerar e come CPU.</p>
+  </div>
+
+  <div class="card">
+    <h3>Enviar mundo do seu PC</h3>
+    <p class="card-hint">Zip com <span class="mono">level.dat</span> na raiz ou dentro de uma
+      pasta só. Enviar não ativa — ative na lista acima.</p>
+    <form hx-post="/a/world/upload" hx-target="#flash" hx-swap="innerHTML"
+          hx-encoding="multipart/form-data">
+      <div class="inline">
+        <div><label for="wfile">Arquivo .zip</label>
+          <input id="wfile" type="file" name="file" accept=".zip"></div>
+        <div><label for="wname">Nome no servidor</label>
+          <input id="wname" name="name" placeholder="usa o nome do arquivo" autocomplete="off"></div>
+        <div class="fit"><button class="b-primary" type="submit" hx-disabled-elt="this">Enviar</button>
+          <span class="spin">enviando…</span></div>
+      </div>
+    </form>
+    <p class="hint">Arquivo grande demora e não mostra porcentagem: 1,8 GB levou cerca de
+      50 segundos na tailnet. Deixe a aba aberta até a confirmação aparecer.</p>
+  </div>
+</div>
+
+<div id="sec-arquivos" hidden>
+  <div id="filebrowser" hx-get="/f/files" hx-trigger="load" hx-swap="innerHTML"></div>
+  <div id="editor"></div>
+</div>
+
+<script>
+  function trocaSub(btn, id){
+    btn.closest('.subtabs').querySelectorAll('button').forEach(function(b){ b.classList.remove('on'); });
+    btn.classList.add('on');
+    ['sec-mundos','sec-arquivos'].forEach(function(s){
+      var el = document.getElementById(s); if (el) el.hidden = (s !== id);
+    });
+  }
+</script>

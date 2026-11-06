@@ -1,0 +1,13 @@
+{% for it in itens %}
+<button class="item {% if it.chave == atual %}on{% endif %}"
+        data-busca="{{ it.spec.label | lower }} {{ it.spec.sub | lower }}"
+        hx-get="/f/alvo/{{ it.chave }}" hx-target="#alvo" hx-swap="innerHTML"
+        hx-on::after-request="document.querySelectorAll('#lateral .item').forEach(e=>e.classList.remove('on'));this.classList.add('on')">
+  <span class="dot {{ it.estado.estado }}"></span>
+  <span class="txt">
+    <span class="nm">{{ it.spec.label }}</span>
+    <span class="sb">{{ it.spec.sub }}</span>
+  </span>
+  <span class="tag">{{ it.estado.rotulo }}</span>
+</button>
+{% endfor %}

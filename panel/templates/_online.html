@@ -1,0 +1,38 @@
+{# Se atualiza sozinho a cada 8s. Fragmento separado do formulário de ações ao
+   lado — polling que recarrega um <input> apaga o que a pessoa está digitando. #}
+<div id="online" hx-get="/f/online" hx-trigger="every 8s, panel-refresh from:body"
+     hx-swap="outerHTML">
+  {% if not j.ok %}
+    <div class="empty">{{ j.motivo }}</div>
+  {% elif j.online == 0 %}
+    <div class="empty">Ninguém online.<br>
+      <span class="tnum">0 de {{ j.max }}</span> jogadores no servidor agora.</div>
+  {% else %}
+    <p class="hint" style="margin:0 0 11px">
+      <span class="pill ok">{{ j.online }} de {{ j.max }}</span> no servidor agora
+    </p>
+    <div class="rows">
+      {% for nome in j.nomes %}
+      <div class="row" style="padding:9px 12px;gap:11px">
+        {# Rosto da skin. A imagem é buscada pelo SEU navegador, não pelo
+           servidor — o nick vai para o mc-heads.net nessa requisição. #}
+        <img src="https://mc-heads.net/avatar/{{ nome|urlencode }}/32" width="32" height="32"
+             alt="" loading="lazy" referrerpolicy="no-referrer"
+             style="border-radius:var(--r-sm);image-rendering:pixelated;flex:0 0 auto;
+                    background:var(--ctrl)"
+             onerror="this.style.visibility='hidden'">
+        <div class="info"><div class="t">{{ nome }}</div></div>
+        <div class="acts">
+          <form hx-post="/a/player" hx-target="#flash" hx-swap="innerHTML"
+        hx-confirm="Expulsar {{ nome }} do servidor?">
+            <input type="hidden" name="action" value="kick">
+            <input type="hidden" name="player" value="{{ nome }}">
+            <button class="b-sm b-stop" type="submit" hx-disabled-elt="this"
+                   >Expulsar</button>
+          </form>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  {% endif %}
+</div>

@@ -1,0 +1,75 @@
+{% set e = cab.estado %}
+{# Se substitui sozinho a cada 8s: estado, uptime, memória e jogadores
+   envelhecem rápido, e o usuário não deveria ter que recarregar a página. #}
+<div id="cabecalho" data-alvo="{{ chave }}" hx-get="/f/cabecalho/{{ chave }}/{{ aba }}"
+     hx-trigger="every 8s, panel-refresh from:body" hx-swap="outerHTML">
+  <div class="head">
+    <div class="head-row">
+      <div class="head-id">
+        <div class="head-name">
+          <span class="dot" style="width:10px;height:10px;border-radius:50%;
+            background:{% if e.estado=='no-ar' %}var(--green){% elif e.estado=='parcial' %}var(--amber){% else %}#5a5c66{% endif %}"></span>
+          <h1>{{ spec.label }}</h1>
+          <span class="state {{ e.estado }}">{{ e.rotulo }}</span>
+        </div>
+        <div class="head-sub">{{ cab.linha }}</div>
+      </div>
+
+      <div style="flex:0 0 auto">
+        <div class="head-acts">
+          {% if spec.tipo == 'host' %}
+            {% if aba != 'energia' %}
+            <button hx-get="/f/alvo/servidor?aba=energia" hx-target="#alvo" hx-swap="innerHTML">Ir para Energia</button>
+            {% endif %}
+          {% else %}
+            <button class="b-go" hx-post="/a/pilha/{{ chave }}/start" hx-target="#flash" hx-swap="innerHTML"
+                    hx-disabled-elt="this" {% if e.estado == 'no-ar' %}disabled{% endif %}>Ligar</button>
+            {% if spec.risco == 'producao' %}
+              <button class="b-primary" hx-post="/a/pilha/{{ chave }}/restart" hx-target="#flash" hx-swap="innerHTML"
+                      hx-disabled-elt="this" {% if e.estado == 'parado' %}disabled{% endif %}
+                      hx-prompt="Isto é PRODUÇÃO e vai ficar fora do ar durante o reinício. Digite {{ spec.label }} para confirmar.">Reiniciar</button>
+              <button class="b-stop" hx-post="/a/pilha/{{ chave }}/stop" hx-target="#flash" hx-swap="innerHTML"
+                      hx-disabled-elt="this" {% if e.estado == 'parado' %}disabled{% endif %}
+                      hx-prompt="Isto é PRODUÇÃO{% if spec.exigido_por %} e derruba também o {{ spec.exigido_por }}{% endif %}. Digite {{ spec.label }} para confirmar.">Desligar</button>
+            {% else %}
+              <button class="b-primary" hx-post="/a/pilha/{{ chave }}/restart" hx-target="#flash" hx-swap="innerHTML"
+                      hx-disabled-elt="this" {% if e.estado == 'parado' %}disabled{% endif %}
+                      hx-confirm="Reiniciar {{ spec.label }}? Quem estiver jogando cai.">Reiniciar</button>
+              <button class="b-stop" hx-post="/a/pilha/{{ chave }}/stop" hx-target="#flash" hx-swap="innerHTML"
+                      hx-disabled-elt="this" {% if e.estado == 'parado' %}disabled{% endif %}
+                      hx-confirm="Desligar {{ spec.label }}?">Desligar</button>
+            {% endif %}
+          {% endif %}
+        </div>
+        <div class="head-meta">
+          {% if spec.tipo == 'minecraft' %}
+            No ar há {{ cab.uptime }} · {{ cab.jogadores or 'servidor parado' }}
+          {% elif spec.tipo == 'pilha' %}
+            {{ e.no_ar }} de {{ e.total }} containers no ar
+          {% elif cab.energia and cab.energia.ativo and cab.energia.proximo != '—' %}
+            Dorme {{ cab.energia.proximo }} · acorda às {{ cab.energia.acorda }}
+          {% elif cab.energia and not cab.energia.ligado %}
+            Agendamento de energia desligado
+          {% else %}
+            Agendamento pausado por hoje
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="strip">
+    {% for r in cab.recursos %}
+    <div class="f">
+      <div class="k">{{ r[0] }}</div>
+      {% if r | length > 2 and r[2] %}
+        <div class="v"><button class="b-sm b-ghost" style="border-color:var(--line)"
+          hx-get="/f/alvo/{{ chave }}?aba={{ r[2] }}" hx-target="#alvo" hx-swap="innerHTML"
+          title="Abrir Configurações para mudar">{{ r[1] }}</button></div>
+      {% else %}
+        <div class="v">{{ r[1] }}</div>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+</div>

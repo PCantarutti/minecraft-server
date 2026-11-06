@@ -1,0 +1,21 @@
+<div class="card">
+  <h3>Comando no servidor</h3>
+  <p class="card-hint">Qualquer comando que o Minecraft aceite no console: <span class="mono">tps</span>,
+    <span class="mono">time set day</span>, <span class="mono">gamerule keepInventory true</span>.</p>
+  <form hx-post="/a/rcon" hx-target="#rcon-out" hx-swap="afterbegin"
+        hx-on::after-request="this.reset(); this.querySelector('input').focus()">
+    <div class="inline">
+      <div><input name="cmd" placeholder="digite e aperte Enter" autocomplete="off" autofocus></div>
+      <div class="fit"><button class="b-primary" type="submit">Enviar</button></div>
+    </div>
+  </form>
+  <div id="rcon-out" style="margin-top:13px"></div>
+</div>
+
+<div class="card">
+  <h3>Log do servidor</h3>
+  <p class="card-hint">Últimas 200 linhas, atualizando sozinho a cada 4 segundos.</p>
+  <div hx-get="/f/console" hx-trigger="load, every 4s" hx-swap="innerHTML">
+    <pre class="log"><span class="dim">carregando log…</span></pre>
+  </div>
+</div>

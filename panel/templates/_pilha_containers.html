@@ -1,0 +1,42 @@
+<div hx-get="/f/aba/{{ chave }}/containers" hx-trigger="every 10s, panel-refresh from:body" hx-swap="outerHTML">
+<div class="card">
+  <h3>Containers do projeto {{ spec.projeto }}</h3>
+  <p class="card-hint">Controle individual. Útil quando um serviço específico trava —
+    reiniciar só o <span class="mono">cloudflared</span> em vez da pilha inteira.</p>
+  {% if spec.risco == 'producao' %}
+  <div class="note" style="margin-bottom:13px">
+    Isto é produção. Parar um container aqui derruba a parte dele do serviço na hora,
+    e nada sobe de volta sozinho.
+  </div>
+  {% endif %}
+  <div class="rows">
+    {% for c in est.containers %}
+    <div class="row {% if c.estado != 'running' %}off{% endif %}">
+      <div class="info">
+        <div class="t">{{ c.servico }}
+          {% if c.estado == 'running' %}<span class="pill ok" style="margin-left:7px">no ar</span>
+          {% else %}<span class="pill flat" style="margin-left:7px">{{ c.estado }}</span>{% endif %}
+        </div>
+        <div class="d mono">{{ c.nome }}</div>
+        <div class="m">{{ c.status }}</div>
+      </div>
+      <div class="acts">
+        <button class="b-sm b-go" hx-post="/a/container/{{ c.nome }}/start"
+                hx-target="#flash" hx-swap="innerHTML"
+                {% if c.estado == 'running' %}disabled{% endif %}>Ligar</button>
+        <button class="b-sm" hx-post="/a/container/{{ c.nome }}/restart"
+                hx-target="#flash" hx-swap="innerHTML"
+                {% if c.estado != 'running' %}disabled{% endif %}
+                hx-confirm="Reiniciar {{ c.nome }}?">Reiniciar</button>
+        <button class="b-sm b-stop" hx-post="/a/container/{{ c.nome }}/stop"
+                hx-target="#flash" hx-swap="innerHTML"
+                {% if c.estado != 'running' %}disabled{% endif %}
+                hx-confirm="Parar {{ c.nome }}? Nada sobe de volta sozinho.">Parar</button>
+      </div>
+    </div>
+    {% else %}
+    <div class="empty">Nenhum container neste projeto.</div>
+    {% endfor %}
+  </div>
+</div>
+</div>

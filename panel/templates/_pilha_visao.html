@@ -1,0 +1,92 @@
+<div hx-get="/f/aba/{{ chave }}/visao" hx-trigger="every 12s, panel-refresh from:body" hx-swap="outerHTML">
+<div class="stats" style="margin-top:16px">
+  <div class="stat"><div class="k">Containers no ar</div>
+    <div class="v">{{ est.no_ar }} <span class="dim" style="font-size:var(--fs-base)">de {{ est.total }}</span></div>
+    <div class="bar"><i style="width:{{ (est.no_ar / est.total * 100) if est.total else 0 }}%;
+      background:{% if est.estado=='no-ar' %}var(--green){% elif est.estado=='parcial' %}var(--amber){% else %}#5a5c66{% endif %}"></i></div>
+  </div>
+  <div class="stat"><div class="k">Projeto Docker</div>
+    <div class="v mono" style="font-size:var(--fs-base)">{{ spec.projeto }}</div>
+    <div class="n">controlado por label, sem tocar no compose</div></div>
+  <div class="stat"><div class="k">Classe</div>
+    <div class="v" style="font-size:var(--fs-base)">
+      {% if spec.risco == 'producao' %}<span class="pill bad">produção</span>
+      {% else %}<span class="pill flat">lazer</span>{% endif %}</div>
+    <div class="n">define o que pede confirmação digitada</div></div>
+  <div class="stat"><div class="k">No boot da máquina</div>
+    <div class="v" style="font-size:var(--fs-base)">
+      {% if auto.misto %}<span class="pill warn">misto</span>
+      {% elif auto.ligado %}<span class="pill ok">sobe sozinho</span>
+      {% else %}<span class="pill flat">não sobe</span>{% endif %}</div>
+    <div class="n">{{ auto.ligados }} de {{ auto.total }} containers</div></div>
+</div>
+
+<div class="card">
+  <h3>Subir sozinho quando a máquina ligar</h3>
+  <p class="card-hint">A máquina acorda às 07:00 todo dia. Desligue isto na pilha
+    que você não vai usar — ela deixa de consumir RAM e CPU até você ligar aqui.</p>
+  <div style="display:flex;gap:9px;flex-wrap:wrap">
+    <form hx-post="/a/autostart/{{ chave }}" hx-target="#flash" hx-swap="innerHTML">
+      <input type="hidden" name="ligado" value="1">
+      <button class="b-go" type="submit" hx-disabled-elt="this"
+              {% if auto.ligado %}disabled{% endif %}>Subir no boot</button>
+    </form>
+    <form hx-post="/a/autostart/{{ chave }}" hx-target="#flash" hx-swap="innerHTML"
+        hx-confirm="Depois do próximo boot, o {{ spec.label }} só sobe quando você mandar aqui. Confirma?">
+      <input type="hidden" name="ligado" value="0">
+      <button class="b-stop" type="submit" hx-disabled-elt="this"
+              {% if not auto.ligado and not auto.misto %}disabled{% endif %}
+             >Não subir no boot</button>
+    </form>
+  </div>
+  {% if spec.depende_de %}
+  <p class="hint">O {{ spec.label }} precisa do {{ spec.depende_de }}. Se deixar
+    este para subir sozinho, deixe o {{ spec.depende_de }} também — senão a pilha
+    acorda sem banco.</p>
+  {% endif %}
+  <p class="hint">Isto grava a política de restart do Docker direto nos
+    containers. Um <span class="mono">docker compose up -d</span> feito por fora
+    volta ao que estiver no arquivo do projeto.</p>
+</div>
+
+{% if spec.exigido_por %}
+<div class="card">
+  <h3>Quem depende desta pilha</h3>
+  <div class="note">
+    O <strong>{{ spec.exigido_por }}</strong> precisa do {{ spec.label }} para funcionar.
+    Desligar aqui derruba os dois — o painel desce o {{ spec.exigido_por }} primeiro,
+    para a API não ficar minutos gritando no log contra um banco que sumiu.
+  </div>
+</div>
+{% endif %}
+
+{% if spec.depende_de %}
+<div class="card">
+  <h3>Do que esta pilha depende</h3>
+  <div class="note calm">
+    O {{ spec.label }} precisa do <strong>{{ spec.depende_de }}</strong>.
+    Ao ligar, o painel sobe o {{ spec.depende_de }} antes — subir sozinho daria um
+    container saudável que não atende nada.
+  </div>
+</div>
+{% endif %}
+
+<div class="card">
+  <h3>Estado por container</h3>
+  <p class="card-hint">Resumo. O controle individual fica na aba Containers.</p>
+  <div class="rows">
+    {% for c in est.containers %}
+    <div class="row" style="padding:9px 12px">
+      <div class="info">
+        <div class="t">{{ c.servico }}</div>
+        <div class="d mono">{{ c.nome }}</div>
+      </div>
+      {% if c.estado == 'running' %}<span class="pill ok">no ar</span>
+      {% else %}<span class="pill flat">{{ c.estado }}</span>{% endif %}
+    </div>
+    {% else %}
+    <div class="empty">Nenhum container neste projeto.</div>
+    {% endfor %}
+  </div>
+</div>
+</div>
