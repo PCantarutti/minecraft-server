@@ -2,20 +2,23 @@
 # Desligamento agendado do host, com acordar pelo relogio da placa-mae.
 #
 # Instalado em /usr/local/bin/desliga-ate-manha. O painel (aba Energia) edita
-# SO as linhas ACORDA= e ACORDA_1..7= abaixo, com sed -- veja
-# energia_definir_horarios() e energia_estado() em panel/app.py. Esta copia e
-# versionada para que reinstalar a maquina nao perca o script; o horario vivo
-# e o do host.
-ACORDA=15:00
-# Horario por dia da semana, numerado como `date +%u` (1=seg ... 7=dom).
-# Vazio = usa ACORDA.
-ACORDA_1=
-ACORDA_2=
-ACORDA_3=
-ACORDA_4=
-ACORDA_5=
-ACORDA_6=
-ACORDA_7=
+# SO as linhas DIA_1..7= abaixo, com sed, e gera a partir delas o OnCalendar
+# do timer -- veja energia_definir_agenda() em panel/app.py. Esta copia e
+# versionada para que reinstalar a maquina nao perca o script; a agenda viva
+# e a do host.
+#
+# Agenda semanal, numerada como `date +%u` (1=seg ... 7=dom):
+#   DIA_n=ACORDA-DORME  nesse dia a maquina acorda e dorme sozinha.
+#                       DORME <= ACORDA = madrugada do dia seguinte
+#                       (08:00-00:00 dorme na virada para o outro dia).
+#   DIA_n=              nesse dia ela NAO acorda sozinha.
+DIA_1=08:00-00:00
+DIA_2=08:00-00:00
+DIA_3=08:00-00:00
+DIA_4=08:00-00:00
+DIA_5=08:00-00:00
+DIA_6=08:00-00:00
+DIA_7=08:00-00:00
 IFACE=enp2s0
 
 # Para o Minecraft com calma ANTES do rtcwake. No shutdown do systemd quem
@@ -28,8 +31,9 @@ IFACE=enp2s0
 # ficaria parado depois de cada noite.
 docker stop -t 120 minecraft 2>/dev/null || true
 
-# Proxima ocorrencia do horario do dia depois de agora: hoje, senao amanha
-# (com o horario de amanha), e assim por diante.
+# Proximo horario de acordar depois de agora: hoje se o dia esta ligado e a
+# hora ainda nao passou, senao o proximo dia ligado. N vai ate 7 para cobrir
+# "so um dia ligado e a hora dele ja passou hoje" (mesmo dia, semana que vem).
 #
 # NAO use `date -d "tomorrow $ACORDA"`: o timer dispara a 00:00, quando o
 # "hoje" ja e o dia novo, e "tomorrow" marcava o dia seguinte -- 39 horas
@@ -40,12 +44,15 @@ docker stop -t 120 minecraft 2>/dev/null || true
 #
 # RTCWAKE_AGORA existe para o teste injetar um "agora" fixo.
 AGORA=${RTCWAKE_AGORA:-$(date +%s)}
-for N in 0 1 2; do
-  DIA=$(TZ=America/Sao_Paulo date -d "@$((AGORA + N * 86400))" +%Y-%m-%d)
-  DOW=$(TZ=America/Sao_Paulo date -d "@$((AGORA + N * 86400))" +%u)
-  eval "HORA=\${ACORDA_$DOW:-$ACORDA}"
-  ALVO=$(TZ=America/Sao_Paulo date -d "$DIA $HORA" +%s)
-  [ "$ALVO" -gt "$AGORA" ] && break
+ALVO=
+for N in 0 1 2 3 4 5 6 7; do
+  T=$((AGORA + N * 86400))
+  DIA=$(TZ=America/Sao_Paulo date -d "@$T" +%Y-%m-%d)
+  DOW=$(TZ=America/Sao_Paulo date -d "@$T" +%u)
+  eval "FAIXA=\${DIA_$DOW}"
+  [ -n "$FAIXA" ] || continue
+  A=$(TZ=America/Sao_Paulo date -d "$DIA ${FAIXA%-*}" +%s)
+  if [ "$A" -gt "$AGORA" ]; then ALVO=$A; break; fi
 done
 
 # Rearma o Wake-on-LAN segundos antes de desligar.
@@ -61,4 +68,11 @@ ethtool -s "$IFACE" wol g 2>/dev/null || true
 echo "desliga-ate-manha: $(ethtool "$IFACE" 2>/dev/null | grep -i 'Wake-on:' | tr -d '	')"
 echo "desliga-ate-manha: wakeup=$(cat /sys/class/net/$IFACE/device/power/wakeup 2>/dev/null)"
 
-rtcwake -m off -t "$ALVO"
+if [ -n "$ALVO" ]; then
+  rtcwake -m off -t "$ALVO"
+else
+  # Nenhum dia ligado: so o "desligar agora" chega aqui (o timer nao tem
+  # horario). Desliga sem despertador -- volta pelo botao ou pelo WoL.
+  echo "desliga-ate-manha: nenhum dia ligado, desligando sem despertador"
+  systemctl poweroff
+fi

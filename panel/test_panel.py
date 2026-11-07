@@ -493,136 +493,119 @@ def _script_do_host():
     return None
 
 
-def test_rtcwake_acorda_na_proxima_ocorrencia():
-    """O despertador tem que cair na PRÓXIMA ocorrência do horário.
+def test_agenda_painel():
+    """Conta do painel: próximo acordar, OnCalendar gerado e ida e volta."""
+    SP = ZoneInfo("America/Sao_Paulo")
+    # Só fim de semana: sáb 10:00-00:00 (dorme na virada), dom 11:30-22:00.
+    agenda = {n: None for n in range(1, 8)}
+    agenda[6] = ("10:00", "00:00")
+    agenda[7] = ("11:30", "22:00")
+    for agora, esperado in _CASOS_AGENDA(SP):
+        assert panel.proxima_acordada(agora, agenda) == esperado, agora
+    assert panel.proxima_acordada(datetime(2026, 11, 7, tzinfo=SP),
+                                  {n: None for n in range(1, 8)}) is None
+    assert panel.fmt_acordada(datetime(2026, 11, 7, 10, 0, tzinfo=SP)) == \
+        "sáb 07/11 às 10:00"
+    # Sábado dorme 00:00 <= 10:00 -> dispara domingo. Domingo dorme no próprio dia.
+    assert panel.oncalendar_da_agenda(agenda) == [
+        "OnCalendar=Sun *-*-* 00:00:00 America/Sao_Paulo",
+        "OnCalendar=Sun *-*-* 22:00:00 America/Sao_Paulo",
+    ]
+    # Domingo 08:00-00:00 vira segunda 00:00 (7 -> 1).
+    assert panel.oncalendar_da_agenda({7: ("08:00", "00:00")}) == [
+        "OnCalendar=Mon *-*-* 00:00:00 America/Sao_Paulo"]
 
-    O script usava `date -d "tomorrow $ACORDA"`, e o timer dispara às 00:00 —
-    quando "hoje" já é o dia novo. Resultado: acordava no dia seguinte, 39 h
-    desligada em vez de 15 h. Aqui o "agora" é injetado por RTCWAKE_AGORA e o
-    rtcwake é uma função de shell, então nada desliga de verdade.
+    script = _script_do_host()
+    if script is None:
+        print("ok  agenda: conta do painel (script do host fora deste contexto)")
+        return
+    texto = script.read_text("utf-8")
+    assert len(panel.ler_agenda(texto)) == 7, "script sem DIA_1..7="
+    novo = subprocess.run(["sed", *panel.sed_agenda(agenda)], input=texto,
+                          capture_output=True, text=True).stdout
+    assert panel.ler_agenda(novo) == agenda
+    mudou = [b for a, b in zip(texto.splitlines(), novo.splitlines()) if a != b]
+    assert all(l.startswith("DIA_") for l in mudou), mudou
+
+    timer = ("[Unit]\nDescription=x\n\n[Timer]\n"
+             "OnCalendar=*-*-* 00:00:00 America/Sao_Paulo\n# comentário\n\n"
+             "[Install]\nWantedBy=timers.target\n")
+    r = subprocess.run(["sed", *panel.sed_timer(agenda)], input=timer,
+                       capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    assert re.findall(r"^OnCalendar=.*$", r.stdout, re.M) == \
+        panel.oncalendar_da_agenda(agenda), r.stdout
+    assert "[Install]" in r.stdout and "# comentário" in r.stdout
+    print("ok  agenda: próximo acordar, OnCalendar e sed do script e do timer")
+
+
+def _CASOS_AGENDA(SP):
+    # 07/11/2026 é sábado.
+    return [
+        # Timer de sábado 00:00 (fim da sexta, que nem está ligada) -> sáb 10:00
+        (datetime(2026, 11, 7, 0, 0, tzinfo=SP), datetime(2026, 11, 7, 10, 0, tzinfo=SP)),
+        # Sábado 12:00, já passou: domingo 11:30.
+        (datetime(2026, 11, 7, 12, 0, tzinfo=SP), datetime(2026, 11, 8, 11, 30, tzinfo=SP)),
+        # Domingo 22:00: seg..sex desligados -> sábado seguinte 10:00.
+        (datetime(2026, 11, 8, 22, 0, tzinfo=SP), datetime(2026, 11, 14, 10, 0, tzinfo=SP)),
+        # Vira o mês.
+        (datetime(2027, 2, 28, 23, 0, tzinfo=SP), datetime(2027, 3, 6, 10, 0, tzinfo=SP)),
+    ]
+
+
+def test_rtcwake_segue_a_agenda():
+    """O script do host arma o despertador no mesmo horário que o painel mostra.
+
+    O "agora" é injetado por RTCWAKE_AGORA e rtcwake/docker/ethtool/systemctl
+    são funções de shell, então nada desliga de verdade. Inclui o caso que
+    motivou "próxima ocorrência": timer das 00:00 não pode pular o dia.
     """
     script = _script_do_host()
     if script is None:
         print("skip  rtcwake: host/desliga-ate-manha não está neste contexto")
         return
     if os.name != "posix":
-        # O script roda no host Linux. No MSYS do Git Bash o `TZ=... date` por
-        # comando não se aplica ao parse de `-d`, e o teste acusaria um erro de
-        # 3 h que não existe no servidor. Lá (container e host) ele roda.
+        # No MSYS do Git Bash o `TZ=... date` por comando não se aplica ao
+        # parse de `-d`. No servidor (container e host) ele roda.
         print("skip  rtcwake: cálculo de fuso só confere em POSIX")
         return
-    texto = script.read_text("utf-8")
-    hora = re.search(r"^ACORDA=(\d{1,2}:\d{2})", texto, re.M)
-    assert hora, "o script precisa da linha ACORDA=HH:MM que o painel edita"
-    hh, mm = (int(x) for x in hora.group(1).split(":"))
-
     SP = ZoneInfo("America/Sao_Paulo")
-    casos = [
-        # (agora, quantas horas até acordar) — 00:00 é o horário do timer
-        (datetime(2026, 11, 7, 0, 0, tzinfo=SP), 15),
-        (datetime(2026, 11, 6, 14, 11, tzinfo=SP), 0),    # "dormir agora"
-        (datetime(2026, 11, 6, 16, 0, tzinfo=SP), 23),    # já passou: amanhã
-        (datetime(2027, 2, 28, 23, 30, tzinfo=SP), 15),   # vira o mês
+    agenda = {n: None for n in range(1, 8)}
+    agenda[6] = ("10:00", "00:00")
+    agenda[7] = ("11:30", "22:00")
+    todo_dia = {n: ("08:00", "00:00") for n in range(1, 8)}
+    nenhum = {n: None for n in range(1, 8)}
+    casos = [(agenda, a, e) for a, e in _CASOS_AGENDA(SP)] + [
+        (todo_dia, datetime(2026, 11, 7, 0, 0, tzinfo=SP),
+         datetime(2026, 11, 7, 8, 0, tzinfo=SP)),
+        (todo_dia, datetime(2026, 11, 6, 9, 0, tzinfo=SP),     # "dormir agora"
+         datetime(2026, 11, 7, 8, 0, tzinfo=SP)),
+        (nenhum, datetime(2026, 11, 6, 9, 0, tzinfo=SP), None),
     ]
-    # rtcwake e docker como FUNÇÃO de shell: tem precedência sobre o PATH, não
-    # depende de stub executável e não desliga a máquina de quem roda o teste.
-    # ethtool tambem sombreado: o script chama `ethtool -s ... wol g`, e um
-    # teste nao pode mexer no hardware de quem o roda.
-    prog = (
-        'rtcwake() { echo "$@"; }\n'
-        'docker() { :; }\n'
-        'ethtool() { echo "        Wake-on: g"; }\n'
-        '. "$1"\n'
-    )
-    for agora, _ in casos:
-        r = subprocess.run(["sh", "-c", prog, "sh", str(script)],
-                           capture_output=True, text=True,
-                           env={**os.environ,
-                                "RTCWAKE_AGORA": str(int(agora.timestamp()))})
-        assert r.returncode == 0, r.stderr
-        # Pega a linha do rtcwake, nao os echos de diagnostico do script.
-        linha = [l for l in r.stdout.splitlines() if "-m off" in l]
-        assert len(linha) == 1, r.stdout
-        m = re.search(r"-t\s+(\d+)", linha[0])
-        assert m, f"rtcwake não recebeu -t: {r.stdout!r} {r.stderr!r}"
-        alvo = datetime.fromtimestamp(int(m.group(1)), SP)
-
-        esperado = agora.replace(hour=hh, minute=mm, second=0, microsecond=0)
-        if esperado <= agora:
-            esperado = datetime.fromtimestamp(
-                int((agora + timedelta(days=1)).timestamp()), SP).replace(
-                    hour=hh, minute=mm, second=0, microsecond=0)
-        assert alvo == esperado, f"agora {agora} -> {alvo}, esperado {esperado}"
-        assert alvo > agora, f"despertador no passado: {alvo} <= {agora}"
-        assert (alvo - agora) <= timedelta(hours=24),             f"mais de 24 h desligada: {agora} -> {alvo}"
-    print("ok  rtcwake acorda na próxima ocorrência, nunca mais de 24 h depois")
-
-
-def test_acorda_por_dia_da_semana():
-    """Horário por dia: script do host e conta do painel têm que concordar."""
-    SP = ZoneInfo("America/Sao_Paulo")
-    dias = {n: "" for n in range(1, 8)}
-    dias[6] = "10:00"   # sábado
-    dias[7] = "11:30"   # domingo
-    casos = [
-        # 07/11/2026 é sábado. Timer das 00:00 -> sábado usa 10:00, não 15:00.
-        (datetime(2026, 11, 7, 0, 0, tzinfo=SP), datetime(2026, 11, 7, 10, 0, tzinfo=SP)),
-        # Sábado 12:00, já passou: domingo 11:30.
-        (datetime(2026, 11, 7, 12, 0, tzinfo=SP), datetime(2026, 11, 8, 11, 30, tzinfo=SP)),
-        # Domingo 20:00: segunda vazia -> padrão 15:00.
-        (datetime(2026, 11, 8, 20, 0, tzinfo=SP), datetime(2026, 11, 9, 15, 0, tzinfo=SP)),
-    ]
-    for agora, esperado in casos:
-        assert panel.proxima_acordada(agora, "15:00", dias) == esperado, agora
-    assert panel.fmt_acordada(casos[0][1]) == "sáb 07/11 às 10:00"
-
-    script = _script_do_host()
-    if script is None or os.name != "posix":
-        print("ok  acorda por dia (painel); script do host só confere em POSIX")
-        return
+    prog = ('rtcwake() { echo "rtcwake $*"; }\ndocker() { :; }\n'
+            'ethtool() { :; }\nsystemctl() { echo "systemctl $*"; }\n. "$1"\n')
     texto = script.read_text("utf-8")
-    padrao, lidos = panel.ler_acorda(texto)
-    assert sorted(lidos) == list(range(1, 8)), "script sem ACORDA_1..7="
-    # Mesmo sed do painel, aplicado a uma cópia
-    texto = subprocess.run(["sed", *panel.sed_acorda("15:00", dias)],
-                           input=texto, capture_output=True, text=True).stdout
-    assert panel.ler_acorda(texto) == ("15:00", dias)
-    prog = ('rtcwake() { echo "$@"; }\ndocker() { :; }\n'
-            'ethtool() { :; }\n. "$1"\n')
     with tempfile.TemporaryDirectory() as tmp:
         copia = Path(tmp) / "desliga"
-        copia.write_text(texto, "utf-8")
-        for agora, esperado in casos:
+        for ag, agora, esperado in casos:
+            copia.write_text(subprocess.run(
+                ["sed", *panel.sed_agenda(ag)], input=texto,
+                capture_output=True, text=True).stdout, "utf-8")
             r = subprocess.run(["sh", "-c", prog, "sh", str(copia)],
                                capture_output=True, text=True,
                                env={**os.environ,
                                     "RTCWAKE_AGORA": str(int(agora.timestamp()))})
             assert r.returncode == 0, r.stderr
-            m = re.search(r"-m off -t (\d+)", r.stdout)
-            assert m, r.stdout
+            assert panel.proxima_acordada(agora, ag) == esperado
+            if esperado is None:
+                assert "systemctl poweroff" in r.stdout and "rtcwake" not in r.stdout, \
+                    r.stdout
+                continue
+            m = re.search(r"rtcwake -m off -t (\d+)", r.stdout)
+            assert m, r.stdout + r.stderr
             alvo = datetime.fromtimestamp(int(m.group(1)), SP)
             assert alvo == esperado, f"script: {agora} -> {alvo}, esperado {esperado}"
-    print("ok  acorda por dia da semana: script e painel concordam")
-
-
-def test_painel_edita_a_linha_acorda():
-    """O painel troca o horário com sed. Só a linha ACORDA= pode mudar."""
-    script = _script_do_host()
-    if script is None:
-        print("skip  sed do painel: host/desliga-ate-manha não está neste contexto")
-        return
-    antes = script.read_text("utf-8")
-    # Mesmo comando de energia_definir_horarios()
-    depois = subprocess.run(["sed", "s|^ACORDA=.*|ACORDA=09:30|"],
-                            input=antes, capture_output=True, text=True).stdout
-    trocadas = [(a, b) for a, b in zip(antes.splitlines(), depois.splitlines())
-                if a != b]
-    assert len(trocadas) == 1, f"o sed tocou em {len(trocadas)} linhas"
-    assert trocadas[0][1] == "ACORDA=09:30", trocadas[0]
-    # E o regex de leitura tem que achar o valor novo
-    lido = re.search(r"^ACORDA=(\d{1,2}:\d{2})", depois, re.M)
-    assert lido and lido.group(1) == "09:30"
-    print("ok  sed do painel muda só a linha ACORDA= e a leitura acompanha")
+    print("ok  rtcwake segue a agenda; sem dia ligado desliga sem despertador")
 
 
 def test_flush_avisa_antes_de_gravar():
@@ -795,9 +778,8 @@ if __name__ == "__main__":
     test_password()
     test_env_roundtrip()
     test_valid_hhmm()
-    test_rtcwake_acorda_na_proxima_ocorrencia()
-    test_acorda_por_dia_da_semana()
-    test_painel_edita_a_linha_acorda()
+    test_agenda_painel()
+    test_rtcwake_segue_a_agenda()
     test_valid_int()
     test_flush_due()
     test_flush_avisa_antes_de_gravar()

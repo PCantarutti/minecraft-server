@@ -454,18 +454,35 @@ HOST_UNIT = "/etc/systemd/system/desliga-ate-manha.timer"
 HOST_SCRIPT = "/usr/local/bin/desliga-ate-manha"
 # Índice = isoweekday() - 1. O script do host numera 1..7 como `date +%u`.
 DIAS_SEMANA = ["seg", "ter", "qua", "qui", "sex", "sáb", "dom"]
+DIAS_SYSTEMD = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+
+# Agenda semanal: {1..7: ("HH:MM acorda", "HH:MM dorme") ou None = não acorda}.
+# Mora nas linhas DIA_n= do script do host; o OnCalendar do timer é gerado
+# a partir dela. Uma fonte só: o painel nunca lê o timer para saber a agenda.
 
 
-def proxima_acordada(apos, padrao, dias):
-    """Mesma conta do script do host: o horário do dia, hoje se ainda não
-    passou, senão o de amanhã. `dias` é {1..7: "HH:MM" ou ""}; vazio = padrão.
-    Só serve para MOSTRAR — quem arma o despertador é o script."""
-    for n in range(3):
+def ler_agenda(script):
+    """Agenda lida das linhas DIA_n= do script. Dia sem linha fica de fora —
+    `len(...) == 7` é o teste de "o script do host é o novo"."""
+    agenda = {}
+    for n in range(1, 8):
+        m = re.search(rf"^DIA_{n}=(?:(\d{{2}}:\d{{2}})-(\d{{2}}:\d{{2}}))?[ \t]*$",
+                      script, re.M)
+        if m:
+            agenda[n] = (m.group(1), m.group(2)) if m.group(1) else None
+    return agenda
+
+
+def proxima_acordada(apos, agenda):
+    """Mesma conta do script do host: hoje se o dia está ligado e a hora não
+    passou, senão o próximo dia ligado. Só serve para MOSTRAR — quem arma o
+    despertador é o script."""
+    for n in range(8):
         d = apos + timedelta(days=n)
-        hora = dias.get(d.isoweekday()) or padrao
-        if not re.fullmatch(r"\d{1,2}:\d{2}", hora or ""):
-            return None
-        hh, mm = (int(x) for x in hora.split(":"))
+        faixa = agenda.get(d.isoweekday())
+        if not faixa:
+            continue
+        hh, mm = (int(x) for x in faixa[0].split(":"))
         alvo = d.replace(hour=hh, minute=mm, second=0, microsecond=0)
         if alvo > apos:
             return alvo
@@ -478,26 +495,35 @@ def fmt_acordada(quando):
     return f"{DIAS_SEMANA[quando.weekday()]} {quando:%d/%m} às {quando:%H:%M}"
 
 
-def ler_acorda(script):
-    """(padrão, {1..7: "HH:MM" ou ""}) lidos do script do host. Dia sem a
-    linha no script fica fora do dicionário."""
-    m = re.search(r"^ACORDA=(\d{1,2}:\d{2})", script, re.M)
-    padrao = m.group(1).zfill(5) if m else ""
-    dias = {}
-    for n in range(1, 8):
-        m = re.search(rf"^ACORDA_{n}=(\d{{1,2}}:\d{{2}})?[ \t]*$", script, re.M)
-        if m:
-            dias[n] = m.group(1).zfill(5) if m.group(1) else ""
-    return padrao, dias
+def oncalendar_da_agenda(agenda):
+    """Linhas OnCalendar= do timer. Dorme <= acorda = madrugada do dia
+    seguinte: sáb 08:00-00:00 dispara domingo 00:00."""
+    linhas = []
+    for n, faixa in sorted(agenda.items()):
+        if not faixa:
+            continue
+        acorda, dorme = faixa
+        dia = n if dorme > acorda else n % 7 + 1
+        linhas.append(f"OnCalendar={DIAS_SYSTEMD[dia - 1]} *-*-* {dorme}:00 "
+                      "America/Sao_Paulo")
+    return linhas
 
 
-def sed_acorda(acorda, dias):
-    """Argumentos `-e` do sed que trocam ACORDA= e ACORDA_1..7=."""
+def sed_agenda(agenda):
+    """Argumentos `-e` do sed que trocam as linhas DIA_n= do script."""
     exprs = []
-    if acorda:
-        exprs += ["-e", f"s|^ACORDA=.*|ACORDA={acorda}|"]
-    for n, hora in sorted((dias or {}).items()):
-        exprs += ["-e", f"s|^ACORDA_{n}=.*|ACORDA_{n}={hora}|"]
+    for n, faixa in sorted(agenda.items()):
+        valor = f"{faixa[0]}-{faixa[1]}" if faixa else ""
+        exprs += ["-e", f"s|^DIA_{n}=.*|DIA_{n}={valor}|"]
+    return exprs
+
+
+def sed_timer(agenda):
+    """Argumentos `-e` do sed que trocam TODAS as OnCalendar= do timer.
+    Os `a` no mesmo endereço saem na ordem em que aparecem (GNU sed)."""
+    exprs = ["-e", "/^OnCalendar=/d"]
+    for linha in oncalendar_da_agenda(agenda):
+        exprs += ["-e", f"/^\\[Timer\\]/a {linha}"]
     return exprs
 
 
@@ -776,8 +802,8 @@ def tarefas():
 def energia_estado():
     """Lê o timer do systemd no host. Tudo aqui é leitura."""
     info = {"disponivel": False, "ligado": False, "ativo": False,
-            "dorme": "—", "acorda": "—", "proximo": "—", "erro": "",
-            "acorda_dias": {}, "acorda_depois": "—", "acorda_agora": "—"}
+            "proximo": "—", "erro": "", "agenda": {},
+            "acorda_depois": "—", "acorda_agora": "—"}
     # --timestamp=unix é obrigatório: sem ele NextElapseUSecRealtime volta como
     # "Fri 2026-11-06 02:00:00 UTC", data formatada e dependente de locale, em
     # vez de número. Com ele vem "@1762394400", que dá para converter.
@@ -800,60 +826,45 @@ def energia_estado():
     dorme_em = None
     if bruto.isdigit() and int(bruto) > 0:
         dorme_em = datetime.fromtimestamp(int(bruto), TZ)
-        info["proximo"] = dorme_em.strftime("%d/%m às %H:%M")
+        info["proximo"] = fmt_acordada(dorme_em)
 
-    _, unit, _ = host_run("cat", HOST_UNIT, timeout=60)
-    m = re.search(r"^OnCalendar=.*?(\d{2}:\d{2}):\d{2}", unit, re.M)
-    if m:
-        info["dorme"] = m.group(1)
     _, script, _ = host_run("cat", HOST_SCRIPT, timeout=60)
-    # Linhas dedicadas, e não a expressão do `date`: o script calcula a
-    # próxima ocorrência do horário do dia, não há literal para ler.
-    padrao, dias = ler_acorda(script)
-    if padrao:
-        info["acorda"] = padrao
-        info["acorda_dias"] = dias
-        agora = datetime.now(TZ)
-        info["acorda_agora"] = fmt_acordada(proxima_acordada(agora, padrao, dias))
-        info["acorda_depois"] = fmt_acordada(
-            proxima_acordada(dorme_em or agora, padrao, dias))
+    agenda = ler_agenda(script)
+    info["agenda"] = agenda
+    agora = datetime.now(TZ)
+    info["acorda_agora"] = fmt_acordada(proxima_acordada(agora, agenda))
+    info["acorda_depois"] = fmt_acordada(
+        proxima_acordada(dorme_em or agora, agenda))
     return info
 
 
-def energia_definir_horarios(dorme, acorda, dias=None):
-    """Reescreve o horário no unit e no script. Só HH:MM validado chega aqui.
-    `dias` = {1..7: "HH:MM" ou ""} (vazio volta ao padrão); None = não mexe."""
-    erros = []
-    if dorme:
-        code, out, err = host_run(
-            "sed", "-i",
-            f"s|^OnCalendar=.*|OnCalendar=*-*-* {dorme}:00 America/Sao_Paulo|",
-            HOST_UNIT, timeout=60)
-        if code != 0:
-            erros.append((err or out).strip()[-200:])
-    exprs = sed_acorda(acorda, dias)
-    if exprs:
-        # Um sed só: cada host_run sobe um container.
-        code, out, err = host_run("sed", "-i", *exprs, HOST_SCRIPT, timeout=60)
-        if code != 0:
-            erros.append((err or out).strip()[-200:])
-        else:
-            # `sed` não reclama quando não casa nada. Sem conferir, um script
-            # antigo no host (sem as linhas ACORDA=) deixaria o painel dizendo
-            # "horários atualizados" e a máquina acordando no horário velho.
-            _, texto, _ = host_run("cat", HOST_SCRIPT, timeout=60)
-            padrao, lidos = ler_acorda(texto)
-            if (acorda and padrao != acorda) or (
-                    dias is not None and lidos != dias):
-                erros.append("o script do host não tem as linhas ACORDA= que o "
-                             "painel edita — o horário de acordar não mudou. "
-                             "Reinstale host/desliga-ate-manha.")
+def energia_definir_agenda(agenda):
+    """Grava a agenda no script do host e regenera o OnCalendar do timer.
+    Só HH:MM validado chega aqui, e ao menos um dia ligado."""
+    # Um sed por arquivo: cada host_run sobe um container.
+    code, out, err = host_run("sed", "-i", *sed_agenda(agenda), HOST_SCRIPT,
+                              timeout=60)
+    if code != 0:
+        return False, (err or out).strip()[-300:]
+    # `sed` não reclama quando não casa nada. Sem conferir, um script antigo
+    # no host (sem as linhas DIA_n=) deixaria o painel dizendo "agenda salva"
+    # e a máquina acordando no horário velho.
+    _, texto, _ = host_run("cat", HOST_SCRIPT, timeout=60)
+    if ler_agenda(texto) != agenda:
+        return False, ("o script do host não tem as linhas DIA_1..7= que o painel "
+                       "edita — nada mudou. Reinstale host/desliga-ate-manha.")
+    code, out, err = host_run("sed", "-i", *sed_timer(agenda), HOST_UNIT,
+                              timeout=60)
+    if code != 0:
+        return False, "script salvo, timer não: " + (err or out).strip()[-200:]
+    _, unit, _ = host_run("cat", HOST_UNIT, timeout=60)
+    if re.findall(r"^OnCalendar=.*$", unit, re.M) != oncalendar_da_agenda(agenda):
+        return False, ("script salvo, mas o timer não ficou com os horários de "
+                       f"dormir. Confira {HOST_UNIT}.")
     host_run("systemctl", "daemon-reload", timeout=120)
     if energia_estado().get("ligado"):
         host_run("systemctl", "restart", HOST_TIMER, timeout=120)
-    if erros:
-        return False, " · ".join(erros)
-    return True, "Horários atualizados."
+    return True, "Agenda salva."
 
 
 def energia_ligar(ligado):
@@ -1895,18 +1906,24 @@ def a_energia_ligar():
 @app.post("/a/energia/horarios")
 @login_required
 def a_energia_horarios():
-    dorme = valid_hhmm(request.form.get("dorme"), "")
-    acorda = valid_hhmm(request.form.get("acorda"), "")
-    dias = None
-    if "acorda_1" in request.form:
-        dias = {n: valid_hhmm(request.form.get(f"acorda_{n}"), "")
-                for n in range(1, 8)}
-    if not dorme and not acorda and dias is None:
-        return frag_error("Informe ao menos um horário.")
-    ok, msg = energia_definir_horarios(dorme, acorda, dias)
-    por_dia = " ".join(f"{DIAS_SEMANA[n - 1]} {h}"
-                       for n, h in (dias or {}).items() if h)
-    audit("energia:horários", f"dorme {dorme} acorda {acorda} {por_dia}".strip())
+    agenda = {}
+    for n in range(1, 8):
+        if not request.form.get(f"liga_{n}"):
+            agenda[n] = None
+            continue
+        acorda = valid_hhmm(request.form.get(f"acorda_{n}"), "")
+        dorme = valid_hhmm(request.form.get(f"dorme_{n}"), "")
+        if not acorda or not dorme:
+            return frag_error(f"{DIAS_SEMANA[n - 1]}: dia ligado precisa dos dois "
+                              "horários, acordar e dormir.")
+        agenda[n] = (acorda, dorme)
+    if not any(agenda.values()):
+        return frag_error("Ligue ao menos um dia. Para a máquina ficar ligada "
+                          "direto, use \"Desligar agendamento\".")
+    ok, msg = energia_definir_agenda(agenda)
+    resumo = " ".join(f"{DIAS_SEMANA[n - 1]} {f[0]}-{f[1]}"
+                      for n, f in agenda.items() if f) or "nenhum dia"
+    audit("energia:agenda", resumo)
     return frag_ok(msg) if ok else frag_error(msg)
 
 

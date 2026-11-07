@@ -41,36 +41,38 @@
   </div>
 
   <div class="card">
-    <h3>Horários</h3>
-    <p class="card-hint">Dormir reescreve o timer do systemd; acordar reescreve o
-      despertador do relógio da placa-mãe, que é quem liga a máquina de volta.</p>
+    <h3>Agenda da semana</h3>
+    <p class="card-hint">Nos dias marcados a máquina acorda e dorme sozinha. Dia
+      desmarcado: ela não acorda sozinha.</p>
+    {% if e.agenda|length != 7 %}
+    <div class="note">O script do host é de uma versão antiga, sem a agenda por
+      dia. Reinstale <span class="mono">host/desliga-ate-manha</span> em
+      <span class="mono">/usr/local/bin</span>.</div>
+    {% else %}
     <form hx-post="/a/energia/horarios" hx-target="#flash" hx-swap="innerHTML">
-      <div class="fields">
-        <div><label for="dorme">Dorme às</label>
-          <input id="dorme" type="time" name="dorme" value="{{ e.dorme if e.dorme != '—' else '' }}"></div>
-        <div><label for="acorda">Acorda às</label>
-          <input id="acorda" type="time" name="acorda" value="{{ e.acorda if e.acorda != '—' else '' }}"></div>
-      </div>
-      {# Só aparece com o script novo no host: com o antigo, salvar dias
-         daria erro em vez de mudar alguma coisa. #}
-      {% if e.acorda_dias|length == 7 %}
-      <p class="card-hint" style="margin-top:15px">Acordar em horário diferente por
-        dia da semana. Vazio usa o "Acorda às" acima.</p>
-      <div class="fields">
+      <table>
+        <tr><th>Dia</th><th>Acorda</th><th>Dorme</th></tr>
         {% for nome in ["seg", "ter", "qua", "qui", "sex", "sáb", "dom"] %}
-        <div><label for="acorda_{{ loop.index }}">{{ nome }}</label>
-          <input id="acorda_{{ loop.index }}" type="time" name="acorda_{{ loop.index }}"
-                 value="{{ e.acorda_dias[loop.index] }}"></div>
+        {% set f = e.agenda[loop.index] %}
+        <tr>
+          <td><label class="check" style="margin:0">
+            <input type="checkbox" name="liga_{{ loop.index }}" value="1"
+                   {% if f %}checked{% endif %}> {{ nome }}</label></td>
+          <td><input type="time" name="acorda_{{ loop.index }}" aria-label="{{ nome }}: acorda"
+                     value="{{ f[0] if f else '08:00' }}"></td>
+          <td><input type="time" name="dorme_{{ loop.index }}" aria-label="{{ nome }}: dorme"
+                     value="{{ f[1] if f else '00:00' }}"></td>
+        </tr>
         {% endfor %}
-      </div>
-      {% endif %}
+      </table>
       <div style="margin-top:15px">
-        <button class="b-primary" type="submit" hx-disabled-elt="this">Salvar horários</button>
+        <button class="b-primary" type="submit" hx-disabled-elt="this">Salvar agenda</button>
         <span class="spin">gravando no host…</span>
       </div>
     </form>
-    <p class="hint">Horário de São Paulo. O relógio do sistema operacional está em
-      UTC, três horas à frente — o painel já converte.</p>
+    {% endif %}
+    <p class="hint">Dorme antes ou igual ao acorda = madrugada do dia seguinte:
+      sáb 08:00 → 00:00 desliga na virada para domingo. Horário de São Paulo.</p>
   </div>
 </div>
 
