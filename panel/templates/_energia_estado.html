@@ -25,7 +25,7 @@
 
     <div class="stat"><div class="k">E acorda em seguida</div>
       <div class="v" style="font-size:var(--fs-base)">
-        {% if e.ativo and pular != hoje %}às {{ e.acorda }}{% else %}—{% endif %}</div>
+        {% if e.ativo and pular != hoje %}{{ e.acorda_depois }}{% else %}—{% endif %}</div>
       <div class="n">despertador no relógio da placa</div></div>
   </div>
 

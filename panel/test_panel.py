@@ -558,6 +558,53 @@ def test_rtcwake_acorda_na_proxima_ocorrencia():
     print("ok  rtcwake acorda na próxima ocorrência, nunca mais de 24 h depois")
 
 
+def test_acorda_por_dia_da_semana():
+    """Horário por dia: script do host e conta do painel têm que concordar."""
+    SP = ZoneInfo("America/Sao_Paulo")
+    dias = {n: "" for n in range(1, 8)}
+    dias[6] = "10:00"   # sábado
+    dias[7] = "11:30"   # domingo
+    casos = [
+        # 07/11/2026 é sábado. Timer das 00:00 -> sábado usa 10:00, não 15:00.
+        (datetime(2026, 11, 7, 0, 0, tzinfo=SP), datetime(2026, 11, 7, 10, 0, tzinfo=SP)),
+        # Sábado 12:00, já passou: domingo 11:30.
+        (datetime(2026, 11, 7, 12, 0, tzinfo=SP), datetime(2026, 11, 8, 11, 30, tzinfo=SP)),
+        # Domingo 20:00: segunda vazia -> padrão 15:00.
+        (datetime(2026, 11, 8, 20, 0, tzinfo=SP), datetime(2026, 11, 9, 15, 0, tzinfo=SP)),
+    ]
+    for agora, esperado in casos:
+        assert panel.proxima_acordada(agora, "15:00", dias) == esperado, agora
+    assert panel.fmt_acordada(casos[0][1]) == "sáb 07/11 às 10:00"
+
+    script = _script_do_host()
+    if script is None or os.name != "posix":
+        print("ok  acorda por dia (painel); script do host só confere em POSIX")
+        return
+    texto = script.read_text("utf-8")
+    padrao, lidos = panel.ler_acorda(texto)
+    assert sorted(lidos) == list(range(1, 8)), "script sem ACORDA_1..7="
+    # Mesmo sed do painel, aplicado a uma cópia
+    texto = subprocess.run(["sed", *panel.sed_acorda("15:00", dias)],
+                           input=texto, capture_output=True, text=True).stdout
+    assert panel.ler_acorda(texto) == ("15:00", dias)
+    prog = ('rtcwake() { echo "$@"; }\ndocker() { :; }\n'
+            'ethtool() { :; }\n. "$1"\n')
+    with tempfile.TemporaryDirectory() as tmp:
+        copia = Path(tmp) / "desliga"
+        copia.write_text(texto, "utf-8")
+        for agora, esperado in casos:
+            r = subprocess.run(["sh", "-c", prog, "sh", str(copia)],
+                               capture_output=True, text=True,
+                               env={**os.environ,
+                                    "RTCWAKE_AGORA": str(int(agora.timestamp()))})
+            assert r.returncode == 0, r.stderr
+            m = re.search(r"-m off -t (\d+)", r.stdout)
+            assert m, r.stdout
+            alvo = datetime.fromtimestamp(int(m.group(1)), SP)
+            assert alvo == esperado, f"script: {agora} -> {alvo}, esperado {esperado}"
+    print("ok  acorda por dia da semana: script e painel concordam")
+
+
 def test_painel_edita_a_linha_acorda():
     """O painel troca o horário com sed. Só a linha ACORDA= pode mudar."""
     script = _script_do_host()
@@ -749,6 +796,7 @@ if __name__ == "__main__":
     test_env_roundtrip()
     test_valid_hhmm()
     test_rtcwake_acorda_na_proxima_ocorrencia()
+    test_acorda_por_dia_da_semana()
     test_painel_edita_a_linha_acorda()
     test_valid_int()
     test_flush_due()

@@ -452,6 +452,53 @@ HOST_HELPER_IMAGE = os.environ.get("HOST_HELPER_IMAGE", "alpine:3.20")
 HOST_TIMER = "desliga-ate-manha.timer"
 HOST_UNIT = "/etc/systemd/system/desliga-ate-manha.timer"
 HOST_SCRIPT = "/usr/local/bin/desliga-ate-manha"
+# Índice = isoweekday() - 1. O script do host numera 1..7 como `date +%u`.
+DIAS_SEMANA = ["seg", "ter", "qua", "qui", "sex", "sáb", "dom"]
+
+
+def proxima_acordada(apos, padrao, dias):
+    """Mesma conta do script do host: o horário do dia, hoje se ainda não
+    passou, senão o de amanhã. `dias` é {1..7: "HH:MM" ou ""}; vazio = padrão.
+    Só serve para MOSTRAR — quem arma o despertador é o script."""
+    for n in range(3):
+        d = apos + timedelta(days=n)
+        hora = dias.get(d.isoweekday()) or padrao
+        if not re.fullmatch(r"\d{1,2}:\d{2}", hora or ""):
+            return None
+        hh, mm = (int(x) for x in hora.split(":"))
+        alvo = d.replace(hour=hh, minute=mm, second=0, microsecond=0)
+        if alvo > apos:
+            return alvo
+    return None
+
+
+def fmt_acordada(quando):
+    if not quando:
+        return "—"
+    return f"{DIAS_SEMANA[quando.weekday()]} {quando:%d/%m} às {quando:%H:%M}"
+
+
+def ler_acorda(script):
+    """(padrão, {1..7: "HH:MM" ou ""}) lidos do script do host. Dia sem a
+    linha no script fica fora do dicionário."""
+    m = re.search(r"^ACORDA=(\d{1,2}:\d{2})", script, re.M)
+    padrao = m.group(1).zfill(5) if m else ""
+    dias = {}
+    for n in range(1, 8):
+        m = re.search(rf"^ACORDA_{n}=(\d{{1,2}}:\d{{2}})?[ \t]*$", script, re.M)
+        if m:
+            dias[n] = m.group(1).zfill(5) if m.group(1) else ""
+    return padrao, dias
+
+
+def sed_acorda(acorda, dias):
+    """Argumentos `-e` do sed que trocam ACORDA= e ACORDA_1..7=."""
+    exprs = []
+    if acorda:
+        exprs += ["-e", f"s|^ACORDA=.*|ACORDA={acorda}|"]
+    for n, hora in sorted((dias or {}).items()):
+        exprs += ["-e", f"s|^ACORDA_{n}=.*|ACORDA_{n}={hora}|"]
+    return exprs
 
 
 def host_run(*args, timeout=180):
@@ -729,7 +776,8 @@ def tarefas():
 def energia_estado():
     """Lê o timer do systemd no host. Tudo aqui é leitura."""
     info = {"disponivel": False, "ligado": False, "ativo": False,
-            "dorme": "—", "acorda": "—", "proximo": "—", "erro": ""}
+            "dorme": "—", "acorda": "—", "proximo": "—", "erro": "",
+            "acorda_dias": {}, "acorda_depois": "—", "acorda_agora": "—"}
     # --timestamp=unix é obrigatório: sem ele NextElapseUSecRealtime volta como
     # "Fri 2026-11-06 02:00:00 UTC", data formatada e dependente de locale, em
     # vez de número. Com ele vem "@1762394400", que dá para converter.
@@ -749,26 +797,32 @@ def energia_estado():
     info["ativo"] = campos.get("ActiveState") == "active"
 
     bruto = campos.get("NextElapseUSecRealtime", "").lstrip("@")
+    dorme_em = None
     if bruto.isdigit() and int(bruto) > 0:
-        quando = datetime.fromtimestamp(int(bruto), TZ)
-        info["proximo"] = quando.strftime("%d/%m às %H:%M")
+        dorme_em = datetime.fromtimestamp(int(bruto), TZ)
+        info["proximo"] = dorme_em.strftime("%d/%m às %H:%M")
 
     _, unit, _ = host_run("cat", HOST_UNIT, timeout=60)
     m = re.search(r"^OnCalendar=.*?(\d{2}:\d{2}):\d{2}", unit, re.M)
     if m:
         info["dorme"] = m.group(1)
     _, script, _ = host_run("cat", HOST_SCRIPT, timeout=60)
-    # Linha dedicada, e não a expressão do `date`: o script precisa calcular a
-    # próxima ocorrência do horário, e não existe mais um literal
-    # "tomorrow HH:MM" para ler.
-    m = re.search(r"^ACORDA=(\d{1,2}:\d{2})", script, re.M)
-    if m:
-        info["acorda"] = m.group(1).zfill(5)
+    # Linhas dedicadas, e não a expressão do `date`: o script calcula a
+    # próxima ocorrência do horário do dia, não há literal para ler.
+    padrao, dias = ler_acorda(script)
+    if padrao:
+        info["acorda"] = padrao
+        info["acorda_dias"] = dias
+        agora = datetime.now(TZ)
+        info["acorda_agora"] = fmt_acordada(proxima_acordada(agora, padrao, dias))
+        info["acorda_depois"] = fmt_acordada(
+            proxima_acordada(dorme_em or agora, padrao, dias))
     return info
 
 
-def energia_definir_horarios(dorme, acorda):
-    """Reescreve o horário no unit e no script. Só HH:MM validado chega aqui."""
+def energia_definir_horarios(dorme, acorda, dias=None):
+    """Reescreve o horário no unit e no script. Só HH:MM validado chega aqui.
+    `dias` = {1..7: "HH:MM" ou ""} (vazio volta ao padrão); None = não mexe."""
     erros = []
     if dorme:
         code, out, err = host_run(
@@ -777,22 +831,23 @@ def energia_definir_horarios(dorme, acorda):
             HOST_UNIT, timeout=60)
         if code != 0:
             erros.append((err or out).strip()[-200:])
-    if acorda:
-        code, out, err = host_run(
-            "sed", "-i", f"s|^ACORDA=.*|ACORDA={acorda}|",
-            HOST_SCRIPT, timeout=60)
+    exprs = sed_acorda(acorda, dias)
+    if exprs:
+        # Um sed só: cada host_run sobe um container.
+        code, out, err = host_run("sed", "-i", *exprs, HOST_SCRIPT, timeout=60)
         if code != 0:
             erros.append((err or out).strip()[-200:])
         else:
             # `sed` não reclama quando não casa nada. Sem conferir, um script
-            # antigo no host (sem a linha ACORDA=) deixaria o painel dizendo
+            # antigo no host (sem as linhas ACORDA=) deixaria o painel dizendo
             # "horários atualizados" e a máquina acordando no horário velho.
             _, texto, _ = host_run("cat", HOST_SCRIPT, timeout=60)
-            lido = re.search(r"^ACORDA=(\d{1,2}:\d{2})", texto, re.M)
-            if not lido or lido.group(1).zfill(5) != acorda:
-                erros.append("o script do host não tem a linha ACORDA= — o "
-                             "horário de acordar não mudou. Reinstale "
-                             "host/desliga-ate-manha.")
+            padrao, lidos = ler_acorda(texto)
+            if (acorda and padrao != acorda) or (
+                    dias is not None and lidos != dias):
+                erros.append("o script do host não tem as linhas ACORDA= que o "
+                             "painel edita — o horário de acordar não mudou. "
+                             "Reinstale host/desliga-ate-manha.")
     host_run("systemctl", "daemon-reload", timeout=120)
     if energia_estado().get("ligado"):
         host_run("systemctl", "restart", HOST_TIMER, timeout=120)
@@ -1842,10 +1897,16 @@ def a_energia_ligar():
 def a_energia_horarios():
     dorme = valid_hhmm(request.form.get("dorme"), "")
     acorda = valid_hhmm(request.form.get("acorda"), "")
-    if not dorme and not acorda:
+    dias = None
+    if "acorda_1" in request.form:
+        dias = {n: valid_hhmm(request.form.get(f"acorda_{n}"), "")
+                for n in range(1, 8)}
+    if not dorme and not acorda and dias is None:
         return frag_error("Informe ao menos um horário.")
-    ok, msg = energia_definir_horarios(dorme, acorda)
-    audit("energia:horários", f"dorme {dorme} acorda {acorda}")
+    ok, msg = energia_definir_horarios(dorme, acorda, dias)
+    por_dia = " ".join(f"{DIAS_SEMANA[n - 1]} {h}"
+                       for n, h in (dias or {}).items() if h)
+    audit("energia:horários", f"dorme {dorme} acorda {acorda} {por_dia}".strip())
     return frag_ok(msg) if ok else frag_error(msg)
 
 
@@ -1866,12 +1927,12 @@ def a_energia_dormir_agora():
     if barrado:
         return barrado
     e = energia_estado()
-    audit("energia:dormir agora", f"acorda {e.get('acorda')}")
+    audit("energia:dormir agora", f"acorda {e.get('acorda_agora')}")
     code, out, err = host_run("systemd-run", "--on-active=5", "--unit=painel-dormir",
                               HOST_SCRIPT, timeout=120)
     if code != 0:
         return frag_error((err or out).strip()[-300:])
-    return frag_ok(f"Desligando em 5 segundos. A máquina acorda às {e.get('acorda')}.")
+    return frag_ok(f"Desligando em 5 segundos. A máquina acorda {e.get('acorda_agora')}.")
 
 
 def frag_ok(msg):
