@@ -8,10 +8,12 @@
 # e a do host.
 #
 # Agenda semanal, numerada como `date +%u` (1=seg ... 7=dom):
-#   DIA_n=ACORDA-DORME  nesse dia a maquina acorda e dorme sozinha.
-#                       DORME <= ACORDA = madrugada do dia seguinte
-#                       (08:00-00:00 dorme na virada para o outro dia).
-#   DIA_n=              nesse dia ela NAO acorda sozinha.
+#   DIA_n=ACORDA-DORME  horarios do dia. DORME <= ACORDA = madrugada do dia
+#                       seguinte (08:00-00:00 dorme na virada do dia).
+#   ~ na frente         desliga aquela metade sem perder o horario:
+#                       08:00-~00:00 acorda sozinha mas NAO dorme sozinha.
+# Este script so le o ACORDA; o DORME vira OnCalendar no timer (15 min antes,
+# por causa do aviso -- veja AVISO_MIN).
 DIA_1=08:00-00:00
 DIA_2=08:00-00:00
 DIA_3=08:00-00:00
@@ -20,6 +22,36 @@ DIA_5=08:00-00:00
 DIA_6=08:00-00:00
 DIA_7=08:00-00:00
 IFACE=enp2s0
+
+# Aviso no chat antes de desligar. O timer dispara AVISO_MIN antes do horario
+# de dormir; aqui o script avisa e espera. Qualquer jogador digitando !ficar
+# cancela; o painel cancela parando o service ("Pular esta noite"). O
+# "desligar agora" do painel roda com AVISO_MIN=0.
+AVISO_MIN=${AVISO_MIN:-15}
+diga() { docker exec minecraft rcon-cli say "$*" >/dev/null 2>&1 || true; }
+if [ "$AVISO_MIN" -gt 0 ]; then
+  INICIO=$(date +%s)
+  FIM=$((INICIO + AVISO_MIN * 60))
+  diga "A maquina desliga sozinha em $AVISO_MIN min (Minecraft junto). Digite !ficar no chat para cancelar."
+  LEMBROU=$AVISO_MIN
+  while [ "$(date +%s)" -lt "$FIM" ]; do
+    # --since com o instante do aviso: um !ficar de outra noite nao vale.
+    if docker logs --since "$INICIO" minecraft 2>&1 | grep -q '> !ficar'; then
+      diga "Desligamento cancelado. A maquina fica ligada ate o proximo horario de dormir."
+      echo "desliga-ate-manha: cancelado pelo chat (!ficar)"
+      exit 0
+    fi
+    FALTA=$(( (FIM - $(date +%s) + 59) / 60 ))
+    for M in 5 1; do
+      if [ "$FALTA" -le "$M" ] && [ "$LEMBROU" -gt "$M" ]; then
+        diga "A maquina desliga em $M min. Digite !ficar para cancelar."
+        LEMBROU=$M
+      fi
+    done
+    sleep 10
+  done
+  diga "Desligando agora. Mundo sendo salvo."
+fi
 
 # Para o Minecraft com calma ANTES do rtcwake. No shutdown do systemd quem
 # para o container e o dockerd, que da SIGTERM e mata a forca em ~10s --
@@ -50,8 +82,9 @@ for N in 0 1 2 3 4 5 6 7; do
   DIA=$(TZ=America/Sao_Paulo date -d "@$T" +%Y-%m-%d)
   DOW=$(TZ=America/Sao_Paulo date -d "@$T" +%u)
   eval "FAIXA=\${DIA_$DOW}"
-  [ -n "$FAIXA" ] || continue
-  A=$(TZ=America/Sao_Paulo date -d "$DIA ${FAIXA%-*}" +%s)
+  ACORDA=${FAIXA%-*}
+  case "$ACORDA" in ""|"~"*) continue ;; esac
+  A=$(TZ=America/Sao_Paulo date -d "$DIA $ACORDA" +%s)
   if [ "$A" -gt "$AGORA" ]; then ALVO=$A; break; fi
 done
 
@@ -71,8 +104,8 @@ echo "desliga-ate-manha: wakeup=$(cat /sys/class/net/$IFACE/device/power/wakeup 
 if [ -n "$ALVO" ]; then
   rtcwake -m off -t "$ALVO"
 else
-  # Nenhum dia ligado: so o "desligar agora" chega aqui (o timer nao tem
-  # horario). Desliga sem despertador -- volta pelo botao ou pelo WoL.
-  echo "desliga-ate-manha: nenhum dia ligado, desligando sem despertador"
+  # Nenhum dia acorda sozinho. Desliga sem despertador -- volta pelo botao
+  # ou pelo WoL.
+  echo "desliga-ate-manha: nenhum dia acorda sozinho, desligando sem despertador"
   systemctl poweroff
 fi

@@ -35,15 +35,15 @@
          >Pular esta noite</button>
       </form>
     </div>
-    <p class="hint">"Pular esta noite" para o timer sem desabilitar nada. É o que
-      usar quando a noite vai virar — em vez de desligar o agendamento e esquecer
-      de religar.</p>
+    <p class="hint">"Pular esta noite" para o timer sem desabilitar nada, e
+      cancela o aviso de 15 min se ele já começou. É o que usar quando a noite
+      vai virar — em vez de desligar o agendamento e esquecer de religar.</p>
   </div>
 
   <div class="card">
     <h3>Agenda da semana</h3>
-    <p class="card-hint">Nos dias marcados a máquina acorda e dorme sozinha. Dia
-      desmarcado: ela não acorda sozinha.</p>
+    <p class="card-hint">Cada dia tem dois interruptores: acordar sozinha e dormir
+      sozinha. Dá para acordar sozinha e só desligar quando você mandar.</p>
     {% if e.agenda|length != 7 %}
     <div class="note">O script do host é de uma versão antiga, sem a agenda por
       dia. Reinstale <span class="mono">host/desliga-ate-manha</span> em
@@ -51,17 +51,21 @@
     {% else %}
     <form hx-post="/a/energia/horarios" hx-target="#flash" hx-swap="innerHTML">
       <table>
-        <tr><th>Dia</th><th>Acorda</th><th>Dorme</th></tr>
+        <tr><th>Dia</th><th>Acorda sozinha</th><th>Dorme sozinha</th></tr>
         {% for nome in ["seg", "ter", "qua", "qui", "sex", "sáb", "dom"] %}
-        {% set f = e.agenda[loop.index] %}
+        {% set n = loop.index %}{% set d = e.agenda[n] %}
         <tr>
-          <td><label class="check" style="margin:0">
-            <input type="checkbox" name="liga_{{ loop.index }}" value="1"
-                   {% if f %}checked{% endif %}> {{ nome }}</label></td>
-          <td><input type="time" name="acorda_{{ loop.index }}" aria-label="{{ nome }}: acorda"
-                     value="{{ f[0] if f else '08:00' }}"></td>
-          <td><input type="time" name="dorme_{{ loop.index }}" aria-label="{{ nome }}: dorme"
-                     value="{{ f[1] if f else '00:00' }}"></td>
+          <td>{{ nome }}</td>
+          <td><div class="inline" style="flex-wrap:nowrap;align-items:center">
+            <input class="fit" type="checkbox" name="liga_acorda_{{ n }}" value="1"
+                   aria-label="{{ nome }}: acorda sozinha" {% if d.liga_acorda %}checked{% endif %}>
+            <input type="time" name="acorda_{{ n }}" aria-label="{{ nome }}: horário de acordar"
+                   value="{{ d.acorda }}"></div></td>
+          <td><div class="inline" style="flex-wrap:nowrap;align-items:center">
+            <input class="fit" type="checkbox" name="liga_dorme_{{ n }}" value="1"
+                   aria-label="{{ nome }}: dorme sozinha" {% if d.liga_dorme %}checked{% endif %}>
+            <input type="time" name="dorme_{{ n }}" aria-label="{{ nome }}: horário de dormir"
+                   value="{{ d.dorme }}"></div></td>
         </tr>
         {% endfor %}
       </table>
@@ -71,8 +75,11 @@
       </div>
     </form>
     {% endif %}
-    <p class="hint">Dorme antes ou igual ao acorda = madrugada do dia seguinte:
-      sáb 08:00 → 00:00 desliga na virada para domingo. Horário de São Paulo.</p>
+    <p class="hint">15 min antes de dormir sozinha, o servidor avisa no chat do
+      Minecraft. Qualquer jogador digitando <span class="mono">!ficar</span>
+      cancela, e "Pular esta noite" também. Dormir antes ou igual ao acordar
+      = madrugada do dia seguinte: sáb 08:00 → 00:00 desliga na virada para
+      domingo. Horário de São Paulo.</p>
   </div>
 </div>
 

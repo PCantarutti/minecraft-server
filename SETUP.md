@@ -544,10 +544,15 @@ lê e mexe nisso entrando nos namespaces do PID 1 pelo socket do Docker
 (`nsenter -t 1`) — sem agente instalado no host e sem regra de sudo.
 
 - **Ligar/desligar** faz `systemctl enable|disable --now` no timer.
-- **Agenda da semana** mora nas linhas `DIA_1..7=ACORDA-DORME` do script
-  (`DIA_n=` vazio = nesse dia não acorda sozinha). O painel grava essas linhas
-  e gera a partir delas um `OnCalendar` por dia ligado no timer — dorme <=
-  acorda vira a madrugada do dia seguinte. Depois de cada `sed` o painel relê
+- **Agenda da semana** mora nas linhas `DIA_1..7=ACORDA-DORME` do script.
+  Cada metade tem seu interruptor: `~` na frente desliga sem perder o horário
+  (`08:00-~00:00` acorda sozinha mas não dorme sozinha). O painel grava essas
+  linhas e gera um `OnCalendar` por dia que dorme, **15 min antes** do
+  horário — dorme <= acorda vira a madrugada do dia seguinte.
+- **Aviso de 15 min:** o script avisa no chat (`rcon-cli say`), lembra aos 5 e
+  a 1 min, e só então desliga. `!ficar` no chat, de qualquer jogador, cancela;
+  "Pular esta noite" também, parando o service. "Desligar agora" roda com
+  `AVISO_MIN=0`. Depois de cada `sed` o painel relê
   o arquivo e confere: `sed` não reclama quando não casa nada, e sem a
   conferência um script antigo no host deixaria o painel dizendo "agenda
   salva" com a máquina no horário velho.

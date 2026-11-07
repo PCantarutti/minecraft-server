@@ -450,39 +450,56 @@ ALVOS = {
 # consulta e mexe no timer de energia sem precisar de sudo nem agente no host.
 HOST_HELPER_IMAGE = os.environ.get("HOST_HELPER_IMAGE", "alpine:3.20")
 HOST_TIMER = "desliga-ate-manha.timer"
+HOST_SERVICE = "desliga-ate-manha.service"
 HOST_UNIT = "/etc/systemd/system/desliga-ate-manha.timer"
 HOST_SCRIPT = "/usr/local/bin/desliga-ate-manha"
 # Índice = isoweekday() - 1. O script do host numera 1..7 como `date +%u`.
 DIAS_SEMANA = ["seg", "ter", "qua", "qui", "sex", "sáb", "dom"]
 DIAS_SYSTEMD = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
-# Agenda semanal: {1..7: ("HH:MM acorda", "HH:MM dorme") ou None = não acorda}.
-# Mora nas linhas DIA_n= do script do host; o OnCalendar do timer é gerado
-# a partir dela. Uma fonte só: o painel nunca lê o timer para saber a agenda.
+# Minutos de aviso no chat antes de dormir. O timer dispara esse tanto antes
+# do horário de dormir; o script do host avisa, espera e só então desliga.
+# Tem que bater com o default de AVISO_MIN no script.
+AVISO_MIN = 15
+
+# Agenda semanal: {1..7: {"acorda": "HH:MM", "dorme": "HH:MM",
+#                         "liga_acorda": bool, "liga_dorme": bool}}.
+# Mora nas linhas DIA_n= do script do host; o OnCalendar do timer é gerado a
+# partir dela. Uma fonte só: o painel nunca lê o timer para saber a agenda.
+# Toggle desligado guarda o horário com "~" na frente, para não perder.
+DIA_PADRAO = {"acorda": "08:00", "dorme": "00:00",
+              "liga_acorda": False, "liga_dorme": False}
 
 
 def ler_agenda(script):
     """Agenda lida das linhas DIA_n= do script. Dia sem linha fica de fora —
-    `len(...) == 7` é o teste de "o script do host é o novo"."""
+    `len(...) == 7` é o teste de "o script do host é o novo". `DIA_n=` vazio
+    (formato anterior) = os dois toggles desligados."""
     agenda = {}
     for n in range(1, 8):
-        m = re.search(rf"^DIA_{n}=(?:(\d{{2}}:\d{{2}})-(\d{{2}}:\d{{2}}))?[ \t]*$",
+        m = re.search(rf"^DIA_{n}=(?:(~?)(\d{{2}}:\d{{2}})-(~?)(\d{{2}}:\d{{2}}))?[ \t]*$",
                       script, re.M)
-        if m:
-            agenda[n] = (m.group(1), m.group(2)) if m.group(1) else None
+        if not m:
+            continue
+        if m.group(2) is None:
+            agenda[n] = dict(DIA_PADRAO)
+        else:
+            agenda[n] = {"acorda": m.group(2), "dorme": m.group(4),
+                         "liga_acorda": not m.group(1),
+                         "liga_dorme": not m.group(3)}
     return agenda
 
 
 def proxima_acordada(apos, agenda):
-    """Mesma conta do script do host: hoje se o dia está ligado e a hora não
-    passou, senão o próximo dia ligado. Só serve para MOSTRAR — quem arma o
-    despertador é o script."""
+    """Mesma conta do script do host: hoje se o dia acorda sozinho e a hora
+    não passou, senão o próximo dia que acorda. Só serve para MOSTRAR — quem
+    arma o despertador é o script."""
     for n in range(8):
         d = apos + timedelta(days=n)
-        faixa = agenda.get(d.isoweekday())
-        if not faixa:
+        dia = agenda.get(d.isoweekday())
+        if not dia or not dia["liga_acorda"]:
             continue
-        hh, mm = (int(x) for x in faixa[0].split(":"))
+        hh, mm = (int(x) for x in dia["acorda"].split(":"))
         alvo = d.replace(hour=hh, minute=mm, second=0, microsecond=0)
         if alvo > apos:
             return alvo
@@ -496,24 +513,29 @@ def fmt_acordada(quando):
 
 
 def oncalendar_da_agenda(agenda):
-    """Linhas OnCalendar= do timer. Dorme <= acorda = madrugada do dia
-    seguinte: sáb 08:00-00:00 dispara domingo 00:00."""
+    """Linhas OnCalendar= do timer: AVISO_MIN antes de cada horário de dormir
+    ligado. Dorme <= acorda = madrugada do dia seguinte: sáb 08:00-00:00
+    desliga domingo 00:00, e o timer dispara sábado 23:45."""
     linhas = []
-    for n, faixa in sorted(agenda.items()):
-        if not faixa:
+    for n, dia in sorted(agenda.items()):
+        if not dia["liga_dorme"]:
             continue
-        acorda, dorme = faixa
-        dia = n if dorme > acorda else n % 7 + 1
-        linhas.append(f"OnCalendar={DIAS_SYSTEMD[dia - 1]} *-*-* {dorme}:00 "
-                      "America/Sao_Paulo")
+        hh, mm = (int(x) for x in dia["dorme"].split(":"))
+        minutos = hh * 60 + mm - AVISO_MIN
+        semana = n - 1 if dia["dorme"] > dia["acorda"] else n % 7
+        semana = (semana + minutos // 1440) % 7     # aviso antes da meia-noite
+        minutos %= 1440
+        linhas.append(f"OnCalendar={DIAS_SYSTEMD[semana]} *-*-* "
+                      f"{minutos // 60:02d}:{minutos % 60:02d}:00 America/Sao_Paulo")
     return linhas
 
 
 def sed_agenda(agenda):
     """Argumentos `-e` do sed que trocam as linhas DIA_n= do script."""
     exprs = []
-    for n, faixa in sorted(agenda.items()):
-        valor = f"{faixa[0]}-{faixa[1]}" if faixa else ""
+    for n, dia in sorted(agenda.items()):
+        valor = (f"{'' if dia['liga_acorda'] else '~'}{dia['acorda']}-"
+                 f"{'' if dia['liga_dorme'] else '~'}{dia['dorme']}")
         exprs += ["-e", f"s|^DIA_{n}=.*|DIA_{n}={valor}|"]
     return exprs
 
@@ -825,7 +847,8 @@ def energia_estado():
     bruto = campos.get("NextElapseUSecRealtime", "").lstrip("@")
     dorme_em = None
     if bruto.isdigit() and int(bruto) > 0:
-        dorme_em = datetime.fromtimestamp(int(bruto), TZ)
+        # O timer dispara AVISO_MIN antes: o desligamento é depois do aviso.
+        dorme_em = datetime.fromtimestamp(int(bruto), TZ) + timedelta(minutes=AVISO_MIN)
         info["proximo"] = fmt_acordada(dorme_em)
 
     _, script, _ = host_run("cat", HOST_SCRIPT, timeout=60)
@@ -841,6 +864,11 @@ def energia_estado():
 def energia_definir_agenda(agenda):
     """Grava a agenda no script do host e regenera o OnCalendar do timer.
     Só HH:MM validado chega aqui, e ao menos um dia ligado."""
+    if not oncalendar_da_agenda(agenda):
+        return False, ("Nenhum dia dorme sozinho, e o systemd recusa timer sem "
+                       "horário. Ligue o dormir de algum dia, ou use \"Desligar "
+                       "agendamento\" — o acordar continua valendo quando você "
+                       "desliga pelo painel.")
     # Um sed por arquivo: cada host_run sobe um container.
     code, out, err = host_run("sed", "-i", *sed_agenda(agenda), HOST_SCRIPT,
                               timeout=60)
@@ -879,15 +907,21 @@ def energia_ligar(ligado):
 
 
 def energia_pular_noite():
-    """Para o timer só por hoje.
+    """Para o timer só por hoje — e a contagem do aviso, se já começou.
 
     `stop` (e não `disable`) mantém o agendamento habilitado: o timer volta
     sozinho no próximo boot. Como pular a noite significa justamente que não
     vai haver boot, o laço do agendador religa o timer quando o dia virar.
+    Parar o service mata o script no meio do aviso de 15 min, antes do
+    desligamento.
     """
-    code, out, err = host_run("systemctl", "stop", HOST_TIMER, timeout=120)
+    _, ativo, _ = host_run("systemctl", "is-active", HOST_SERVICE, timeout=60)
+    code, out, err = host_run("systemctl", "stop", HOST_TIMER, HOST_SERVICE,
+                              timeout=120)
     if code != 0:
         return False, (err or out).strip()[-300:]
+    if ativo.strip() in ("active", "activating"):
+        try_rcon("say Desligamento cancelado pelo painel. A máquina fica ligada.")
     st = load_state()
     st["energia_pular_ate"] = now().strftime("%Y-%m-%d")
     save_state(st)
@@ -1908,21 +1942,17 @@ def a_energia_ligar():
 def a_energia_horarios():
     agenda = {}
     for n in range(1, 8):
-        if not request.form.get(f"liga_{n}"):
-            agenda[n] = None
-            continue
-        acorda = valid_hhmm(request.form.get(f"acorda_{n}"), "")
-        dorme = valid_hhmm(request.form.get(f"dorme_{n}"), "")
-        if not acorda or not dorme:
-            return frag_error(f"{DIAS_SEMANA[n - 1]}: dia ligado precisa dos dois "
-                              "horários, acordar e dormir.")
-        agenda[n] = (acorda, dorme)
-    if not any(agenda.values()):
-        return frag_error("Ligue ao menos um dia. Para a máquina ficar ligada "
-                          "direto, use \"Desligar agendamento\".")
+        agenda[n] = {
+            "acorda": valid_hhmm(request.form.get(f"acorda_{n}"), DIA_PADRAO["acorda"]),
+            "dorme": valid_hhmm(request.form.get(f"dorme_{n}"), DIA_PADRAO["dorme"]),
+            "liga_acorda": bool(request.form.get(f"liga_acorda_{n}")),
+            "liga_dorme": bool(request.form.get(f"liga_dorme_{n}")),
+        }
     ok, msg = energia_definir_agenda(agenda)
-    resumo = " ".join(f"{DIAS_SEMANA[n - 1]} {f[0]}-{f[1]}"
-                      for n, f in agenda.items() if f) or "nenhum dia"
+    resumo = " ".join(
+        f"{DIAS_SEMANA[n - 1]} "
+        f"{d['acorda'] if d['liga_acorda'] else '—'}/{d['dorme'] if d['liga_dorme'] else '—'}"
+        for n, d in agenda.items())
     audit("energia:agenda", resumo)
     return frag_ok(msg) if ok else frag_error(msg)
 
@@ -1945,7 +1975,9 @@ def a_energia_dormir_agora():
         return barrado
     e = energia_estado()
     audit("energia:dormir agora", f"acorda {e.get('acorda_agora')}")
+    # Sem aviso no chat: quem clicou aqui já decidiu.
     code, out, err = host_run("systemd-run", "--on-active=5", "--unit=painel-dormir",
+                              "--setenv=AVISO_MIN=0",
                               HOST_SCRIPT, timeout=120)
     if code != 0:
         return frag_error((err or out).strip()[-300:])

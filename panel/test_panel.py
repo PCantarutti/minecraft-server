@@ -493,27 +493,58 @@ def _script_do_host():
     return None
 
 
+def _dia(acorda, dorme, liga_acorda=True, liga_dorme=True):
+    return {"acorda": acorda, "dorme": dorme,
+            "liga_acorda": liga_acorda, "liga_dorme": liga_dorme}
+
+
+def _agenda_fds():
+    """Só fim de semana: sáb 10:00-00:00 (dorme na virada), dom 11:30-22:00.
+    Dias de semana com horário guardado e os dois toggles desligados."""
+    ag = {n: _dia("08:00", "00:00", False, False) for n in range(1, 8)}
+    ag[6] = _dia("10:00", "00:00")
+    ag[7] = _dia("11:30", "22:00")
+    return ag
+
+
+def _CASOS_AGENDA(SP):
+    # 07/11/2026 é sábado.
+    return [
+        # Timer de sábado 00:00 -> sáb 10:00
+        (datetime(2026, 11, 7, 0, 0, tzinfo=SP), datetime(2026, 11, 7, 10, 0, tzinfo=SP)),
+        # Sábado 12:00, já passou: domingo 11:30.
+        (datetime(2026, 11, 7, 12, 0, tzinfo=SP), datetime(2026, 11, 8, 11, 30, tzinfo=SP)),
+        # Domingo 22:00: seg..sex não acordam -> sábado seguinte 10:00.
+        (datetime(2026, 11, 8, 22, 0, tzinfo=SP), datetime(2026, 11, 14, 10, 0, tzinfo=SP)),
+        # Vira o mês.
+        (datetime(2027, 2, 28, 23, 0, tzinfo=SP), datetime(2027, 3, 6, 10, 0, tzinfo=SP)),
+    ]
+
+
 def test_agenda_painel():
-    """Conta do painel: próximo acordar, OnCalendar gerado e ida e volta."""
+    """Conta do painel: próximo acordar, OnCalendar com aviso e ida e volta."""
     SP = ZoneInfo("America/Sao_Paulo")
-    # Só fim de semana: sáb 10:00-00:00 (dorme na virada), dom 11:30-22:00.
-    agenda = {n: None for n in range(1, 8)}
-    agenda[6] = ("10:00", "00:00")
-    agenda[7] = ("11:30", "22:00")
+    agenda = _agenda_fds()
     for agora, esperado in _CASOS_AGENDA(SP):
         assert panel.proxima_acordada(agora, agenda) == esperado, agora
     assert panel.proxima_acordada(datetime(2026, 11, 7, tzinfo=SP),
-                                  {n: None for n in range(1, 8)}) is None
+                                  {n: _dia("08:00", "00:00", False) for n in range(1, 8)}) is None
     assert panel.fmt_acordada(datetime(2026, 11, 7, 10, 0, tzinfo=SP)) == \
         "sáb 07/11 às 10:00"
-    # Sábado dorme 00:00 <= 10:00 -> dispara domingo. Domingo dorme no próprio dia.
+    assert panel.AVISO_MIN == 15
+    # Sábado dorme dom 00:00 -> aviso sáb 23:45. Domingo dorme 22:00 -> 21:45.
     assert panel.oncalendar_da_agenda(agenda) == [
-        "OnCalendar=Sun *-*-* 00:00:00 America/Sao_Paulo",
-        "OnCalendar=Sun *-*-* 22:00:00 America/Sao_Paulo",
+        "OnCalendar=Sat *-*-* 23:45:00 America/Sao_Paulo",
+        "OnCalendar=Sun *-*-* 21:45:00 America/Sao_Paulo",
     ]
-    # Domingo 08:00-00:00 vira segunda 00:00 (7 -> 1).
-    assert panel.oncalendar_da_agenda({7: ("08:00", "00:00")}) == [
-        "OnCalendar=Mon *-*-* 00:00:00 America/Sao_Paulo"]
+    # Domingo 08:00-00:30 dorme seg 00:30 -> aviso seg 00:15 (7 -> 1).
+    assert panel.oncalendar_da_agenda({7: _dia("08:00", "00:30")}) == [
+        "OnCalendar=Mon *-*-* 00:15:00 America/Sao_Paulo"]
+    # Segunda 08:00-00:00: aviso domingo... não: dorme ter 00:00 -> seg 23:45.
+    assert panel.oncalendar_da_agenda({1: _dia("08:00", "00:00")}) == [
+        "OnCalendar=Mon *-*-* 23:45:00 America/Sao_Paulo"]
+    # Acorda sozinha mas não dorme: nenhuma linha.
+    assert panel.oncalendar_da_agenda({6: _dia("10:00", "00:00", True, False)}) == []
 
     script = _script_do_host()
     if script is None:
@@ -524,8 +555,11 @@ def test_agenda_painel():
     novo = subprocess.run(["sed", *panel.sed_agenda(agenda)], input=texto,
                           capture_output=True, text=True).stdout
     assert panel.ler_agenda(novo) == agenda
+    assert "DIA_1=~08:00-~00:00" in novo and "DIA_6=10:00-00:00" in novo
     mudou = [b for a, b in zip(texto.splitlines(), novo.splitlines()) if a != b]
     assert all(l.startswith("DIA_") for l in mudou), mudou
+    # Formato anterior (DIA_n= vazio) lê como os dois toggles desligados.
+    assert panel.ler_agenda("DIA_3=\n")[3] == panel.DIA_PADRAO
 
     timer = ("[Unit]\nDescription=x\n\n[Timer]\n"
              "OnCalendar=*-*-* 00:00:00 America/Sao_Paulo\n# comentário\n\n"
@@ -536,29 +570,29 @@ def test_agenda_painel():
     assert re.findall(r"^OnCalendar=.*$", r.stdout, re.M) == \
         panel.oncalendar_da_agenda(agenda), r.stdout
     assert "[Install]" in r.stdout and "# comentário" in r.stdout
-    print("ok  agenda: próximo acordar, OnCalendar e sed do script e do timer")
+    print("ok  agenda: toggles, próximo acordar, OnCalendar com aviso e sed")
 
 
-def _CASOS_AGENDA(SP):
-    # 07/11/2026 é sábado.
-    return [
-        # Timer de sábado 00:00 (fim da sexta, que nem está ligada) -> sáb 10:00
-        (datetime(2026, 11, 7, 0, 0, tzinfo=SP), datetime(2026, 11, 7, 10, 0, tzinfo=SP)),
-        # Sábado 12:00, já passou: domingo 11:30.
-        (datetime(2026, 11, 7, 12, 0, tzinfo=SP), datetime(2026, 11, 8, 11, 30, tzinfo=SP)),
-        # Domingo 22:00: seg..sex desligados -> sábado seguinte 10:00.
-        (datetime(2026, 11, 8, 22, 0, tzinfo=SP), datetime(2026, 11, 14, 10, 0, tzinfo=SP)),
-        # Vira o mês.
-        (datetime(2027, 2, 28, 23, 0, tzinfo=SP), datetime(2027, 3, 6, 10, 0, tzinfo=SP)),
-    ]
+_STUBS = ('rtcwake() { echo "rtcwake $*"; }\nethtool() { :; }\n'
+          'systemctl() { echo "systemctl $*"; }\nsleep() { :; }\n')
+
+
+def _roda_script(texto, env, docker='docker() { :; }\n'):
+    with tempfile.TemporaryDirectory() as tmp:
+        copia = Path(tmp) / "desliga"
+        copia.write_text(texto, "utf-8")
+        return subprocess.run(["sh", "-c", _STUBS + docker + '. "$1"\n', "sh", str(copia)],
+                              capture_output=True, text=True,
+                              env={**os.environ, **env})
 
 
 def test_rtcwake_segue_a_agenda():
     """O script do host arma o despertador no mesmo horário que o painel mostra.
 
-    O "agora" é injetado por RTCWAKE_AGORA e rtcwake/docker/ethtool/systemctl
-    são funções de shell, então nada desliga de verdade. Inclui o caso que
-    motivou "próxima ocorrência": timer das 00:00 não pode pular o dia.
+    O "agora" é injetado por RTCWAKE_AGORA, AVISO_MIN=0 pula o aviso, e
+    rtcwake/docker/ethtool/systemctl/sleep são funções de shell: nada desliga
+    de verdade. Inclui o caso que motivou "próxima ocorrência": timer das
+    00:00 não pode pular o dia.
     """
     script = _script_do_host()
     if script is None:
@@ -570,42 +604,54 @@ def test_rtcwake_segue_a_agenda():
         print("skip  rtcwake: cálculo de fuso só confere em POSIX")
         return
     SP = ZoneInfo("America/Sao_Paulo")
-    agenda = {n: None for n in range(1, 8)}
-    agenda[6] = ("10:00", "00:00")
-    agenda[7] = ("11:30", "22:00")
-    todo_dia = {n: ("08:00", "00:00") for n in range(1, 8)}
-    nenhum = {n: None for n in range(1, 8)}
-    casos = [(agenda, a, e) for a, e in _CASOS_AGENDA(SP)] + [
+    todo_dia = {n: _dia("08:00", "00:00") for n in range(1, 8)}
+    nenhum = {n: _dia("08:00", "00:00", False, True) for n in range(1, 8)}
+    casos = [(_agenda_fds(), a, e) for a, e in _CASOS_AGENDA(SP)] + [
         (todo_dia, datetime(2026, 11, 7, 0, 0, tzinfo=SP),
          datetime(2026, 11, 7, 8, 0, tzinfo=SP)),
         (todo_dia, datetime(2026, 11, 6, 9, 0, tzinfo=SP),     # "dormir agora"
          datetime(2026, 11, 7, 8, 0, tzinfo=SP)),
         (nenhum, datetime(2026, 11, 6, 9, 0, tzinfo=SP), None),
     ]
-    prog = ('rtcwake() { echo "rtcwake $*"; }\ndocker() { :; }\n'
-            'ethtool() { :; }\nsystemctl() { echo "systemctl $*"; }\n. "$1"\n')
     texto = script.read_text("utf-8")
-    with tempfile.TemporaryDirectory() as tmp:
-        copia = Path(tmp) / "desliga"
-        for ag, agora, esperado in casos:
-            copia.write_text(subprocess.run(
-                ["sed", *panel.sed_agenda(ag)], input=texto,
-                capture_output=True, text=True).stdout, "utf-8")
-            r = subprocess.run(["sh", "-c", prog, "sh", str(copia)],
-                               capture_output=True, text=True,
-                               env={**os.environ,
-                                    "RTCWAKE_AGORA": str(int(agora.timestamp()))})
-            assert r.returncode == 0, r.stderr
-            assert panel.proxima_acordada(agora, ag) == esperado
-            if esperado is None:
-                assert "systemctl poweroff" in r.stdout and "rtcwake" not in r.stdout, \
-                    r.stdout
-                continue
-            m = re.search(r"rtcwake -m off -t (\d+)", r.stdout)
-            assert m, r.stdout + r.stderr
-            alvo = datetime.fromtimestamp(int(m.group(1)), SP)
-            assert alvo == esperado, f"script: {agora} -> {alvo}, esperado {esperado}"
-    print("ok  rtcwake segue a agenda; sem dia ligado desliga sem despertador")
+    for ag, agora, esperado in casos:
+        novo = subprocess.run(["sed", *panel.sed_agenda(ag)], input=texto,
+                              capture_output=True, text=True).stdout
+        r = _roda_script(novo, {"RTCWAKE_AGORA": str(int(agora.timestamp())),
+                                "AVISO_MIN": "0"})
+        assert r.returncode == 0, r.stderr
+        assert panel.proxima_acordada(agora, ag) == esperado
+        if esperado is None:
+            assert "systemctl poweroff" in r.stdout and "rtcwake" not in r.stdout, r.stdout
+            continue
+        m = re.search(r"rtcwake -m off -t (\d+)", r.stdout)
+        assert m, r.stdout + r.stderr
+        alvo = datetime.fromtimestamp(int(m.group(1)), SP)
+        assert alvo == esperado, f"script: {agora} -> {alvo}, esperado {esperado}"
+    print("ok  rtcwake segue a agenda; sem dia que acorda desliga sem despertador")
+
+
+def test_aviso_e_ficar_cancela():
+    """Com aviso, o script fala no chat; um `!ficar` no log cancela tudo."""
+    script = _script_do_host()
+    if script is None or os.name != "posix":
+        print("skip  aviso/!ficar: só confere em POSIX com o script do host")
+        return
+    texto = script.read_text("utf-8")
+    # docker logs devolve um chat com !ficar; o resto do docker só ecoa.
+    docker = ('docker() {\n'
+              '  if [ "$1" = logs ]; then echo "[23:46:01 INFO]: <Pedro> !ficar"; return; fi\n'
+              '  echo "docker $*" >&3\n}\nexec 3>&1\n')  # diga() joga stdout fora
+    r = _roda_script(texto, {"AVISO_MIN": "15"}, docker)
+    assert r.returncode == 0, r.stderr
+    assert "rcon-cli say A maquina desliga sozinha em 15 min" in r.stdout, r.stdout
+    assert "Desligamento cancelado" in r.stdout and "cancelado pelo chat" in r.stdout
+    assert "rtcwake" not in r.stdout and "docker stop" not in r.stdout, r.stdout
+    # Chat sem !ficar não cancela: AVISO_MIN=1 com sleep falso gira só ~60 s
+    # reais; aqui basta provar que "!ficarei" ou outro texto não casa.
+    assert subprocess.run(["grep", "-q", "> !ficar"], input="<Pedro> oi\n",
+                          capture_output=True, text=True).returncode != 0
+    print("ok  aviso no chat sai, e !ficar cancela antes de parar o Minecraft")
 
 
 def test_flush_avisa_antes_de_gravar():
@@ -780,6 +826,7 @@ if __name__ == "__main__":
     test_valid_hhmm()
     test_agenda_painel()
     test_rtcwake_segue_a_agenda()
+    test_aviso_e_ficar_cancela()
     test_valid_int()
     test_flush_due()
     test_flush_avisa_antes_de_gravar()
