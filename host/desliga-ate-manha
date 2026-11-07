@@ -6,6 +6,7 @@
 # energia_estado() em panel/app.py. Esta copia e versionada para que
 # reinstalar a maquina nao perca o script; o horario vivo e o do host.
 ACORDA=15:00
+IFACE=enp2s0
 
 # Para o Minecraft com calma ANTES do rtcwake. No shutdown do systemd quem
 # para o container e o dockerd, que da SIGTERM e mata a forca em ~10s --
@@ -33,5 +34,18 @@ if [ "$ALVO" -le "$AGORA" ]; then
   AMANHA=$(TZ=America/Sao_Paulo date -d "@$((AGORA + 86400))" +%Y-%m-%d)
   ALVO=$(TZ=America/Sao_Paulo date -d "$AMANHA $ACORDA" +%s)
 fi
+
+# Rearma o Wake-on-LAN segundos antes de desligar.
+#
+# wake-on-lan.service ja faz isso no boot, mas o r8169 pode perder o ajuste
+# quando a interface cai na sequencia de shutdown -- e aí o magic packet chega
+# numa placa que nao esta ouvindo. Rearmar aqui e o ultimo momento possivel.
+#
+# O echo nao e enfeite: deixa no journal como a placa ficou armada no instante
+# do poweroff. Sem esse registro, "o WoL nao funcionou" continua sendo palpite
+# entre BIOS, driver e pacote.
+ethtool -s "$IFACE" wol g 2>/dev/null || true
+echo "desliga-ate-manha: $(ethtool "$IFACE" 2>/dev/null | grep -i 'Wake-on:' | tr -d '	')"
+echo "desliga-ate-manha: wakeup=$(cat /sys/class/net/$IFACE/device/power/wakeup 2>/dev/null)"
 
 rtcwake -m off -t "$ALVO"

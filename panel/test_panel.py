@@ -526,9 +526,12 @@ def test_rtcwake_acorda_na_proxima_ocorrencia():
     ]
     # rtcwake e docker como FUNÇÃO de shell: tem precedência sobre o PATH, não
     # depende de stub executável e não desliga a máquina de quem roda o teste.
+    # ethtool tambem sombreado: o script chama `ethtool -s ... wol g`, e um
+    # teste nao pode mexer no hardware de quem o roda.
     prog = (
         'rtcwake() { echo "$@"; }\n'
         'docker() { :; }\n'
+        'ethtool() { echo "        Wake-on: g"; }\n'
         '. "$1"\n'
     )
     for agora, _ in casos:
@@ -537,7 +540,10 @@ def test_rtcwake_acorda_na_proxima_ocorrencia():
                            env={**os.environ,
                                 "RTCWAKE_AGORA": str(int(agora.timestamp()))})
         assert r.returncode == 0, r.stderr
-        m = re.search(r"-t\s+(\d+)", r.stdout)
+        # Pega a linha do rtcwake, nao os echos de diagnostico do script.
+        linha = [l for l in r.stdout.splitlines() if "-m off" in l]
+        assert len(linha) == 1, r.stdout
+        m = re.search(r"-t\s+(\d+)", linha[0])
         assert m, f"rtcwake não recebeu -t: {r.stdout!r} {r.stderr!r}"
         alvo = datetime.fromtimestamp(int(m.group(1)), SP)
 
