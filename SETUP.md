@@ -524,6 +524,19 @@ Só funciona dentro da LAN: magic packet é broadcast de camada 2, e com a
 máquina desligada não há Tailscale rodando nela. De fora, só o despertador do
 BIOS.
 
+### Docker espera a rede no boot
+
+O netplan não ativa `systemd-networkd-wait-online`, então o Docker subia antes
+da `enp2s0` ter rota e o Minecraft morria baixando o Paper
+(`Network is unreachable`). `host/docker-espera-rede.conf` faz o dockerd
+esperar a rota default (até 60s):
+
+```bash
+sudo mkdir -p /etc/systemd/system/docker.service.d
+sudo cp docker-espera-rede.conf /etc/systemd/system/docker.service.d/espera-rede.conf
+sudo systemctl daemon-reload
+```
+
 ### Energia: como funciona
 
 O host desliga por `rtcwake` e acorda pelo despertador da placa-mãe. O painel
