@@ -2210,8 +2210,19 @@ def a_world_download():
     # CPU — disputada com o servidor — para economizar pouco.
     with zipfile.ZipFile(tmp, "w", zipfile.ZIP_STORED, allowZip64=True) as zf:
         for p in target.rglob("*"):
-            if p.is_file():
+            if p.is_file() and p.name != "session.lock":
                 zf.write(p, p.relative_to(target.parent))
+        # Paper 26.x grava world_gen_settings/game_rules/... só dentro de
+        # dimensions/minecraft/overworld/data/minecraft; o singleplayer vanilla
+        # lê da raiz data/minecraft e, sem eles, recusa o mundo como
+        # "dados inválidos ou corrompidos". Copia para a raiz no zip.
+        raiz = target / "data" / "minecraft"
+        over = target / "dimensions" / "minecraft" / "overworld" / "data" / "minecraft"
+        for f in ("world_gen_settings", "game_rules", "weather",
+                  "scheduled_events", "wandering_trader"):
+            src = over / f"{f}.dat"
+            if src.is_file() and not (raiz / f"{f}.dat").exists():
+                zf.write(src, (raiz / f"{f}.dat").relative_to(target.parent))
 
     @after_this_request
     def cleanup(response):
