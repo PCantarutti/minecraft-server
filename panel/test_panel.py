@@ -667,6 +667,8 @@ def test_flush_avisa_antes_de_gravar():
 
     out = panel.flush_do_mundo(avisar_s=10, rcon=rcon_ok, dormir=dormir)
     assert out == "Saved the game", out
+    # Sondagem da gamerule não respondeu "set to:" → nada de keepInventory.
+    passos[:] = [p for p in passos if not str(p[1]).startswith("gamerule")]
     assert len(passos) == 3, passos
     assert passos[0][0] == "rcon" and passos[0][1].startswith("say "), passos[0]
     assert "10 segundos" in passos[0][1], passos[0][1]
@@ -690,8 +692,42 @@ def test_flush_avisa_antes_de_gravar():
     # avisar_s=0 grava direto: sem say, sem espera.
     passos.clear()
     panel.flush_do_mundo(avisar_s=0, rcon=rcon_ok, dormir=dormir)
+    passos[:] = [p for p in passos if not str(p[1]).startswith("gamerule")]
     assert passos == [("rcon", "save-all flush")], passos
     print("ok  flush avisa, espera e só então grava")
+
+
+def test_flush_keepinventory():
+    """Liga keepInventory ANTES do save, desliga só depois de 30 s."""
+    regra = {"v": "false"}
+    cmds = []
+
+    def rcon(cmd):
+        cmds.append(cmd)
+        if cmd == "gamerule keep_inventory":
+            # Formato real do servidor 26.x: sem dois-pontos.
+            return f"Game rule keep_inventory is currently set to {regra['v']}"
+        if cmd.startswith("gamerule keep_inventory "):
+            regra["v"] = cmd.split()[-1]
+        return "ok"
+
+    panel._keepinv.update(nome=None, desligar_em=0.0)
+    panel.flush_do_mundo(avisar_s=10, rcon=rcon, dormir=lambda s: None)
+    assert cmds.index("gamerule keep_inventory true") < cmds.index("save-all flush"), cmds
+    assert regra["v"] == "true"
+
+    panel.keepinv_desligar_se_venceu(rcon=rcon, agora=panel._keepinv["desligar_em"] - 1)
+    assert regra["v"] == "true", "desligou antes dos 30 s"
+    panel.keepinv_desligar_se_venceu(rcon=rcon, agora=panel._keepinv["desligar_em"])
+    assert regra["v"] == "false" and panel._keepinv["nome"] is None
+
+    # Já estava true (escolha do dono): painel não liga nem desliga nada.
+    regra["v"] = "true"
+    cmds.clear()
+    panel.flush_do_mundo(avisar_s=0, rcon=rcon, dormir=lambda s: None)
+    assert not any(c.endswith((" true", " false")) for c in cmds), cmds
+    assert panel._keepinv["nome"] is None
+    print("ok  keepInventory cobre o flush e volta ao que era")
 
 
 def test_paper_autosave_texto():
@@ -802,6 +838,26 @@ def test_rcon_bad_password():
         srv.close()
 
 
+def test_pagina_mods_publica():
+    """/mods abre sem login e só entrega .mrpack de cliente/, nada fora dela."""
+    import json
+    panel.CLIENTE.mkdir(parents=True, exist_ok=True)
+    (panel.CLIENTE / "mods.json").write_text(json.dumps({
+        "minecraft": "26.3", "loader": "Fabric", "modpack": "pack.mrpack",
+        "mods": [{"nome": "Simple Voice Chat", "versao": "2.6.27", "url": "https://modrinth.com/mod/simple-voice-chat"}],
+    }), encoding="utf-8")
+    (panel.CLIENTE / "pack.mrpack").write_bytes(b"PK")
+    (panel.PROJECT / "segredo.mrpack").write_bytes(b"x")
+    c = panel.app.test_client()
+    r = c.get("/mods")
+    assert r.status_code == 200 and "Simple Voice Chat" in r.text and "/mods/pack.mrpack" in r.text
+    assert c.get("/mods/pack.mrpack").data == b"PK"
+    assert c.get("/mods/mods.json").status_code == 404        # só .mrpack
+    assert c.get("/mods/..%2Fsegredo.mrpack").status_code == 404
+    assert c.get("/").status_code == 302                       # resto do painel segue com login
+    print("ok  página /mods pública e restrita a cliente/*.mrpack")
+
+
 if __name__ == "__main__":
     test_safe_path()
     test_safe_name()
@@ -830,7 +886,9 @@ if __name__ == "__main__":
     test_valid_int()
     test_flush_due()
     test_flush_avisa_antes_de_gravar()
+    test_flush_keepinventory()
     test_paper_autosave_texto()
     test_rcon_protocol()
     test_rcon_bad_password()
+    test_pagina_mods_publica()
     print("\ntudo passou")

@@ -1,0 +1,24 @@
+# Quem morrer com a conexão ruim mantém inventário e XP. Vale só para essa
+# pessoa — os outros jogadores seguem a gamerule normal.
+#
+# O ping vem do keep-alive do servidor, que o Minecraft mede a cada ~15 s e
+# suaviza. Ou seja: ele reage a lag que DURA alguns segundos, não a um pico
+# instantâneo. Perda de pacote aparece como ping subindo/oscilando — o
+# servidor não expõe perda de pacote diretamente.
+
+# Ping (ms) a partir do qual a conexão conta como ruim.
+ping-alto-ms: 300
+
+# Diferença entre o maior e o menor ping dentro da janela (ms). Oscilação
+# grande é o sintoma típico de perda de pacote. 0 = não usa.
+oscilacao-ms: 250
+
+# Quantos segundos de histórico olhar.
+janela-s: 20
+
+# Depois que normaliza, continua protegido por mais este tempo: a morte
+# costuma vir logo depois do travamento, quando o jogo "alcança".
+protecao-extra-s: 30
+
+# Avisa o jogador no chat quando ele morreu e manteve os itens por causa disso.
+avisar: true

@@ -1,0 +1,22 @@
+{
+  "type": "minecraft:multi_action",
+  "title": "♪ Música do servidor",
+  "external_title": "♪ Música",
+  "body": { "type": "minecraft:plain_message", "contents": { "text": "Qualquer botão mostra o que está tocando.", "color": "gray" }, "width": 400 },
+  "inputs": [ { "type": "minecraft:text", "key": "q", "label": "Buscar música ou colar link", "width": 310, "max_length": 300 } ],
+  "columns": 3,
+  "actions": [
+    { "label": "Buscar", "tooltip": "Procura o que está no campo", "width": 100, "action": { "type": "minecraft:dynamic/custom", "id": "musica:buscar" } },
+    { "label": "⏸ Pausar", "tooltip": "Pausa ou continua", "width": 100, "action": { "type": "minecraft:custom", "id": "musica:pause" } },
+    { "label": "» Próxima", "width": 100, "action": { "type": "minecraft:custom", "id": "musica:skip" } },
+    { "label": "⤨ Aleatório", "tooltip": "Embaralha a fila", "width": 100, "action": { "type": "minecraft:custom", "id": "musica:shuffle" } },
+    { "label": "■ Parar", "tooltip": "Para e limpa a fila", "width": 100, "action": { "type": "minecraft:custom", "id": "musica:stop" } },
+    { "label": "♥ Salvar", "tooltip": "Salva a música atual numa playlist", "width": 100, "action": { "type": "minecraft:custom", "id": "musica:salvar" } },
+    { "label": "Fila", "width": 100, "action": { "type": "minecraft:custom", "id": "musica:fila" } },
+    { "label": "Playlists", "width": 100, "action": { "type": "minecraft:custom", "id": "musica:playlists" } },
+    { "label": "Volume", "width": 100, "action": { "type": "minecraft:custom", "id": "musica:volume" } }
+  ],
+  "after_action": "none",
+  "pause": false,
+  "exit_action": { "label": "Fechar", "width": 100, "action": { "type": "minecraft:custom", "id": "musica:fechar" } }
+}

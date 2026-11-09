@@ -748,6 +748,50 @@ docker run --rm -v minecraft_mc_data:/d -v $HOME/backups:/b alpine tar czf /b/mc
 
 ---
 
+## Fase 10 — Música (plugin + Simple Voice Chat)
+
+`/music play <link ou busca>` toca para todo mundo pelo Simple Voice Chat.
+Código e comandos: [plugin-musica/README.md](plugin-musica/README.md).
+
+**No servidor** nada é instalado à mão. A imagem do `mc` deixou de ser o
+`itzg/minecraft-server` puro e virou `minecraft-musica` (construída de
+`plugin-musica/Dockerfile`): itzg + o plugin + `yt-dlp` + `deno`. O Simple
+Voice Chat do servidor vem do Modrinth (`MODRINTH_PROJECTS`) a cada start, e o
+plugin roda `yt-dlp -U` a cada boot.
+
+Aplicar ou atualizar (o `up` reinicia o Minecraft, avise quem estiver jogando):
+
+```bash
+cd ~/app/minecraft && docker compose build --pull mc && docker compose up -d mc
+```
+
+`docker compose pull` não serve mais para o `mc`: a imagem é local.
+
+A porta **UDP 24454** (áudio do voice chat) escuta no mesmo `MC_BIND` da 25565.
+Sem ela o jogador entra, mas não ouve nada.
+
+**Nos jogadores:** o servidor não consegue instalar mod no cliente (o Minecraft
+só deixa servidor mandar resource pack). Por isso existe a página pública
+**`http://<PANEL_BIND>:<PANEL_PORT>/mods`** (sem login, tela própria, fora do
+painel): botão para baixar o modpack e link de cada mod no Modrinth para quem
+já tem instância. Ela lê `cliente/mods.json`, gravado junto com o modpack. Quem
+entra sem o voice chat recebe esse link no chat (`MUSICA_MODS_URL` no compose).
+Dois caminhos:
+
+- **Modpack pronto:** mande `cliente/servidor-do-pedro-<versão>.mrpack`. No
+  Modrinth App: *Adicionar instância → Importar → o arquivo*. Cria o perfil com
+  Fabric + Fabric API + Simple Voice Chat. Gerar de novo quando o Minecraft
+  mudar de versão (`MC_VERSION=LATEST` muda sozinho):
+
+  ```bash
+  python cliente/gerar-mrpack.py 26.3
+  ```
+
+- **Instância que já existe:** os links da página `/mods`, ou no Modrinth App
+  *instância → Conteúdo → Instalar conteúdo → Simple Voice Chat*.
+
+---
+
 ## Operação
 
 | O quê | Comando |
@@ -757,7 +801,7 @@ docker run --rm -v minecraft_mc_data:/d -v $HOME/backups:/b alpine tar czf /b/mc
 | Log | `docker compose logs -f --tail 100` |
 | Console | `docker exec -i minecraft rcon-cli` |
 | RAM/CPU | `docker stats --no-stream` |
-| Atualizar | `docker compose pull && docker compose up -d` |
+| Atualizar | `docker compose build --pull mc && docker compose up -d mc` |
 
 Sobe sozinho no boot (`restart: unless-stopped`).
 

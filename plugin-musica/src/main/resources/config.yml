@@ -1,0 +1,19 @@
+# Como chamar o yt-dlp (busca e áudio do YouTube). Precisa de um runtime JS
+# (deno, padrão do yt-dlp, ou node com "--js-runtimes node").
+# Exemplo com yt-dlp instalado via pip e node:
+#   command: [python, -m, yt_dlp, --js-runtimes, node]
+ytdlp:
+  command: [yt-dlp]
+  # Roda "yt-dlp -U" ao ligar o servidor (só funciona no binário standalone).
+  update-on-start: true
+
+# Página que o aviso no join abre para quem entra sem o voice chat (a variável
+# de ambiente MUSICA_MODS_URL, definida no compose, tem prioridade).
+# Vazio = página do Simple Voice Chat no Modrinth.
+mods-page-url: ""
+
+# Só necessário para links do Spotify (o plugin lê os nomes das faixas e
+# procura no YouTube). Crie um app em https://developer.spotify.com/dashboard
+spotify:
+  client-id: ""
+  client-secret: ""

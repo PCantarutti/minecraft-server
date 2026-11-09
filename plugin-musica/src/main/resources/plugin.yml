@@ -1,0 +1,9 @@
+name: Musica
+version: 1.0.0
+main: dev.pedro.musica.MusicaPlugin
+api-version: '26.3'
+depend: [voicechat]
+commands:
+  music:
+    description: Toca música para todos via Simple Voice Chat
+    usage: "/music (abre o player) ou /music <play|playlist|queue|next|shuffle|pause|skip|stop|volume>"

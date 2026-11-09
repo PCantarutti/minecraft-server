@@ -1,0 +1,17 @@
+{
+  "minecraft": "26.3",
+  "loader": "Fabric",
+  "modpack": "servidor-do-pedro-26.3.mrpack",
+  "mods": [
+    {
+      "nome": "Fabric API",
+      "versao": "0.165.2+26.3",
+      "url": "https://modrinth.com/mod/fabric-api/versions?g=26.3&l=fabric"
+    },
+    {
+      "nome": "Simple Voice Chat",
+      "versao": "fabric-2.6.27+26.3",
+      "url": "https://modrinth.com/mod/simple-voice-chat/versions?g=26.3&l=fabric"
+    }
+  ]
+}

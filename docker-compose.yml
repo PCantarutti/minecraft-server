@@ -18,7 +18,18 @@ services:
     # desencaixar de novo quando o Mojang pular de JVM — o log diz qual
     # ("requires running the server with Java NN or above") e a correção é
     # trocar esta tag. Pinar MC_VERSION evita a surpresa.
-    image: itzg/minecraft-server:${MC_JAVA:-java25}
+    #
+    # Imagem local = itzg + plugin de música + yt-dlp + deno (plugin-musica/
+    # Dockerfile). `compose up` constrói se não existir; para atualizar o
+    # itzg ou o plugin: `docker compose build --pull mc && docker compose up -d mc`.
+    build:
+      context: ./plugin-musica
+      # Segundo plugin, pasta própria; o Dockerfile pega com COPY --from=lag.
+      additional_contexts:
+        lag: ./plugin-lag
+      args:
+        MC_JAVA: ${MC_JAVA:-java25}
+    image: minecraft-musica:${MC_JAVA:-java25}
     container_name: minecraft
     # Vem do .env porque a aba Automação do painel grava aqui. Fixo no arquivo,
     # um `compose up -d mc` (que a aba Configuração roda a cada salvamento)
@@ -70,6 +81,19 @@ services:
       SPAWN_ANIMALS: ${MC_SPAWN_ANIMALS:-true}
       SPAWN_NPCS: ${MC_SPAWN_NPCS:-true}
       ENABLE_COMMAND_BLOCK: ${MC_COMMAND_BLOCK:-false}
+      # ---- Plugins -----------------------------------------------------------
+      # Baixado do Modrinth a cada start, na versão que casa com o Paper.
+      # O plugin de música (dentro da imagem) depende dele.
+      MODRINTH_PROJECTS: simple-voice-chat
+      # O voice chat publica as versões novas como beta; sem isto o servidor
+      # ficaria atrás do que os jogadores baixam (topo da página do Modrinth).
+      MODRINTH_ALLOWED_VERSION_TYPE: beta
+      # Para onde o aviso "instale o voice chat" leva quem entra sem ele:
+      # a página pública /mods do painel (modpack + links de cada mod).
+      # Tela de controle da música (tecla "Ações rápidas" e menu de pausa),
+      # embutida na imagem; o itzg copia para o mundo ativo a cada start.
+      DATAPACKS: /datapacks/musica
+      MUSICA_MODS_URL: http://${PANEL_BIND:-127.0.0.1}:${PANEL_PORT:-8080}/mods
     # O host usa systemd-resolved: o resolv.conf herdado aponta p/ 127.0.0.53,
     # que dentro do container é loopback vazio → nada resolve e o download do
     # Paper morre em DNS timeout. Resolver explícito corta a dependência disso.
@@ -81,6 +105,8 @@ services:
       # alcançável só por quem está na tailnet, nunca pela internet.
       # Default 127.0.0.1 é fallback seguro — se o .env faltar, ninguém entra.
       - "${MC_BIND:-127.0.0.1}:25565:25565"
+      # Áudio do Simple Voice Chat (música e voz). UDP, mesma regra: só tailnet.
+      - "${MC_BIND:-127.0.0.1}:24454:24454/udp"
     volumes:
       - mc_data:/data
     networks: [mc]

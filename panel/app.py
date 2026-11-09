@@ -29,7 +29,8 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from flask import (Flask, Response, abort, after_this_request, redirect,
-                   render_template, request, send_file, session, url_for)
+                   render_template, request, send_file, send_from_directory,
+                   session, url_for)
 
 # ---------------------------------------------------------------------------
 # Configuração
@@ -1464,6 +1465,38 @@ def due(key, hhmm, days):
 # registrado, para não repetir a mesma linha no histórico a cada intervalo.
 _last_flush = {"at": 0.0, "erro": ""}
 
+# keepInventory ligado durante o flush: o travamento do save pode matar alguém
+# (lava, queda, mob que "pula" ticks) e o item não deveria ir junto. O painel
+# só desliga o que ELE ligou — se a regra já estava true, fica true.
+KEEPINV_DEPOIS_S = 30
+# Pendência de desligar. Fica aqui (e não num Timer) para o laço do agendador
+# tentar de novo se o servidor cair no meio: senão a regra ficaria true para
+# sempre. ponytail: em memória; se o PAINEL reiniciar nesses 30 s, fica true.
+_keepinv = {"nome": None, "desligar_em": 0.0}
+
+
+def gamerule_keepinv(rcon):
+    """(nome, valor) da regra, ou (None, None) se o servidor não respondeu.
+
+    1.21.11 renomeou as gamerules para snake_case; o nome antigo fica de
+    reserva para um mundo/versão mais velhos.
+    """
+    for nome in ("keep_inventory", "keepInventory"):
+        # 26.x responde "currently set to false" (sem ":"); versões velhas, com.
+        m = re.search(r"set to:?\s*(true|false)", rcon(f"gamerule {nome}"))
+        if m:
+            return nome, m.group(1) == "true"
+    return None, None
+
+
+def keepinv_desligar_se_venceu(rcon=None, agora=None):
+    rcon = rcon or try_rcon
+    nome = _keepinv["nome"]
+    if not nome or (agora if agora is not None else time.monotonic()) < _keepinv["desligar_em"]:
+        return
+    if not rcon(f"gamerule {nome} false").startswith("[rcon indisponível]"):
+        _keepinv["nome"] = None
+
 
 def flush_do_mundo(avisar_s=FLUSH_AVISO_S, rcon=None, dormir=None):
     """Avisa quem está jogando, espera e grava. Devolve a resposta do save.
@@ -1478,8 +1511,17 @@ def flush_do_mundo(avisar_s=FLUSH_AVISO_S, rcon=None, dormir=None):
         # Servidor parado: não faz sentido esperar 10 s para falhar de novo.
         if resp.startswith("[rcon indisponível]"):
             return resp
+    if not _keepinv["nome"]:
+        nome, ligado = gamerule_keepinv(rcon)
+        if nome and not ligado:
+            rcon(f"gamerule {nome} true")
+            _keepinv["nome"] = nome
+    if avisar_s > 0:
         dormir(avisar_s)
-    return rcon("save-all flush")
+    out = rcon("save-all flush")
+    if _keepinv["nome"]:
+        _keepinv["desligar_em"] = time.monotonic() + KEEPINV_DEPOIS_S
+    return out
 
 
 def paper_autosave_texto(texto, valor):
@@ -1565,6 +1607,7 @@ def scheduler_loop():
                 if erro and erro != _last_flush["erro"]:
                     log_system(f"agendador: flush do mundo falhou — {erro[:160]}")
                 _last_flush["erro"] = erro
+            keepinv_desligar_se_venceu()
         except Exception as e:                      # thread nunca pode morrer
             log_system(f"agendador: erro inesperado — {e}")
         time.sleep(20)
@@ -1579,6 +1622,33 @@ def log_system(message):
     del st["audit"][200:]
     save_state(st)
     print(f"[painel] {message}", flush=True)
+
+
+# ---------------------------------------------------------------------------
+# Rotas — página dos jogadores (PÚBLICA, sem login)
+# ---------------------------------------------------------------------------
+# O que instalar para jogar no servidor: o modpack (instância nova) e os links
+# de cada mod no Modrinth (instância que o jogador já tem). Tela própria, fora
+# da moldura do painel: quem abre é jogador, não admin. Lê o que o
+# cliente/gerar-mrpack.py gravou; nada aqui toca em Docker ou RCON.
+CLIENTE = PROJECT / "cliente"
+
+
+@app.get("/mods")
+def mods_page():
+    try:
+        info = json.loads((CLIENTE / "mods.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        info = None
+    return render_template("mods.html", info=info)
+
+
+@app.get("/mods/<nome>")
+def mods_download(nome):
+    if not nome.endswith(".mrpack"):
+        abort(404)
+    # send_from_directory recusa caminho que escape da pasta (../)
+    return send_from_directory(CLIENTE, nome, as_attachment=True)
 
 
 # ---------------------------------------------------------------------------

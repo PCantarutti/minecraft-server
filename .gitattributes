@@ -1,2 +1,5 @@
 # Script roda no host Linux: CRLF viraria "#!/bin/sh\r" e nada executa.
 host/desliga-ate-manha text eol=lf
+
+# gradlew roda dentro do build Docker (Linux)
+plugin-musica/gradlew text eol=lf

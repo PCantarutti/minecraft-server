@@ -1,0 +1,5 @@
+name: Lag
+version: 1.0.0
+main: dev.pedro.lag.LagPlugin
+api-version: '26.3'
+description: Quem morre com a conexão ruim mantém os itens (só essa pessoa).
