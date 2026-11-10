@@ -1468,7 +1468,8 @@ _last_flush = {"at": 0.0, "erro": ""}
 # keepInventory ligado durante o flush: o travamento do save pode matar alguém
 # (lava, queda, mob que "pula" ticks) e o item não deveria ir junto. O painel
 # só desliga o que ELE ligou — se a regra já estava true, fica true.
-KEEPINV_DEPOIS_S = 30
+KEEPINV_ANTES_S = 5    # liga isso antes do save (dentro do aviso de 10 s)
+KEEPINV_DEPOIS_S = 10  # desliga isso depois que o save termina
 # Pendência de desligar. Fica aqui (e não num Timer) para o laço do agendador
 # tentar de novo se o servidor cair no meio: senão a regra ficaria true para
 # sempre. ponytail: em memória; se o PAINEL reiniciar nesses 30 s, fica true.
@@ -1511,16 +1512,23 @@ def flush_do_mundo(avisar_s=FLUSH_AVISO_S, rcon=None, dormir=None):
         # Servidor parado: não faz sentido esperar 10 s para falhar de novo.
         if resp.startswith("[rcon indisponível]"):
             return resp
+    antes = min(KEEPINV_ANTES_S, avisar_s)
+    if avisar_s > antes:
+        dormir(avisar_s - antes)
     if not _keepinv["nome"]:
         nome, ligado = gamerule_keepinv(rcon)
         if nome and not ligado:
             rcon(f"gamerule {nome} true")
             _keepinv["nome"] = nome
-    if avisar_s > 0:
-        dormir(avisar_s)
+    if antes > 0:
+        dormir(antes)
     out = rcon("save-all flush")
     if _keepinv["nome"]:
         _keepinv["desligar_em"] = time.monotonic() + KEEPINV_DEPOIS_S
+        # Espera aqui em vez de deixar para o laço (que roda a cada 20 s e
+        # transformaria 10 s em até 30). Se o RCON falhar, o laço tenta de novo.
+        dormir(KEEPINV_DEPOIS_S)
+        keepinv_desligar_se_venceu(rcon, agora=_keepinv["desligar_em"])
     return out
 
 

@@ -669,11 +669,12 @@ def test_flush_avisa_antes_de_gravar():
     assert out == "Saved the game", out
     # Sondagem da gamerule não respondeu "set to:" → nada de keepInventory.
     passos[:] = [p for p in passos if not str(p[1]).startswith("gamerule")]
-    assert len(passos) == 3, passos
+    assert len(passos) == 4, passos
     assert passos[0][0] == "rcon" and passos[0][1].startswith("say "), passos[0]
     assert "10 segundos" in passos[0][1], passos[0][1]
-    assert passos[1] == ("dormiu", 10), passos[1]
-    assert passos[2] == ("rcon", "save-all flush"), passos[2]
+    # 10 s de aviso no total, partidos em 5 + 5 (keepInventory entra no meio).
+    assert passos[1:3] == [("dormiu", 5), ("dormiu", 5)], passos[1:3]
+    assert passos[3] == ("rcon", "save-all flush"), passos[3]
 
     # Servidor parado: avisa, vê que não há ninguém, e NÃO espera 10 s para
     # falhar de novo. Sem isso o laço do agendador travaria 10 s por ciclo.
@@ -698,7 +699,7 @@ def test_flush_avisa_antes_de_gravar():
 
 
 def test_flush_keepinventory():
-    """Liga keepInventory ANTES do save, desliga só depois de 30 s."""
+    """Aviso 10 s → liga keepInventory a 5 s do save → desliga 10 s depois."""
     regra = {"v": "false"}
     cmds = []
 
@@ -712,13 +713,20 @@ def test_flush_keepinventory():
         return "ok"
 
     panel._keepinv.update(nome=None, desligar_em=0.0)
-    panel.flush_do_mundo(avisar_s=10, rcon=rcon, dormir=lambda s: None)
-    assert cmds.index("gamerule keep_inventory true") < cmds.index("save-all flush"), cmds
-    assert regra["v"] == "true"
+    panel.flush_do_mundo(avisar_s=10, rcon=rcon, dormir=lambda s: cmds.append(f"dormiu {s}"))
+    seq = [c for c in cmds if c != "gamerule keep_inventory"]
+    assert seq[0].startswith("say "), seq
+    assert seq[1:] == ["dormiu 5", "gamerule keep_inventory true", "dormiu 5",
+                       "save-all flush", "dormiu 10", "gamerule keep_inventory false"], seq
+    assert regra["v"] == "false" and panel._keepinv["nome"] is None
 
-    panel.keepinv_desligar_se_venceu(rcon=rcon, agora=panel._keepinv["desligar_em"] - 1)
-    assert regra["v"] == "true", "desligou antes dos 30 s"
-    panel.keepinv_desligar_se_venceu(rcon=rcon, agora=panel._keepinv["desligar_em"])
+    # RCON falhou na hora de desligar: fica pendente para o laço tentar de novo.
+    panel._keepinv.update(nome="keep_inventory", desligar_em=100.0)
+    panel.keepinv_desligar_se_venceu(rcon=lambda c: "[rcon indisponível] x", agora=100.0)
+    assert panel._keepinv["nome"] == "keep_inventory"
+    panel.keepinv_desligar_se_venceu(rcon=rcon, agora=99.0)
+    assert panel._keepinv["nome"] == "keep_inventory", "desligou antes da hora"
+    panel.keepinv_desligar_se_venceu(rcon=rcon, agora=100.0)
     assert regra["v"] == "false" and panel._keepinv["nome"] is None
 
     # Já estava true (escolha do dono): painel não liga nem desliga nada.
