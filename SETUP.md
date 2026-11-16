@@ -529,7 +529,10 @@ BIOS.
 O netplan não ativa `systemd-networkd-wait-online`, então o Docker subia antes
 da `enp2s0` ter rota e o Minecraft morria baixando o Paper
 (`Network is unreachable`). `host/docker-espera-rede.conf` faz o dockerd
-esperar a rota default (até 60s):
+esperar a rota default **e o IP da `tailscale0`** (até 90s). Sem o segundo, o
+painel e o Minecraft às vezes não subiam: o bind em `PANEL_BIND`/`MC_BIND`
+(IP da tailnet) falhava com `cannot assign requested address` e o Docker não
+tenta de novo container que falha no start do daemon.
 
 ```bash
 sudo mkdir -p /etc/systemd/system/docker.service.d
